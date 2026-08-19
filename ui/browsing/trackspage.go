@@ -32,9 +32,8 @@ type TracksPage struct {
 	loader          *widgets.TracklistLoader
 	searchTracklist *widgets.Tracklist
 	searchLoader    *widgets.TracklistLoader
-	playAll         *widget.Button
-	shuffleAll      *widget.Button
-	playRandom      *widget.Button
+	playBtn         *widget.Button
+	shuffleBtn      *widgets.IconButton
 	container       *fyne.Container
 }
 
@@ -73,9 +72,17 @@ func NewTracksPage(contr *controller.Controller, conf *backend.TracksPageConfig,
 
 	t.title = widget.NewRichTextWithText(lang.L("All Tracks"))
 	t.title.Segments[0].(*widget.TextSegment).Style.SizeName = widget.RichTextStyleHeading.SizeName
-	t.playAll = widget.NewButtonWithIcon(lang.L("Play all"), fynetheme.MediaPlayIcon(), t.playAllTracks)
-	t.shuffleAll = widget.NewButtonWithIcon(lang.L("Shuffle all"), theme.ShuffleIcon, t.shuffleAllTracks)
-	t.playRandom = widget.NewButtonWithIcon(lang.L("Play random"), theme.ShuffleIcon, t.playRandomSongs)
+	// Spotify-style context controls: one Play button plus a shuffle toggle
+	// mirroring the global shuffle state
+	t.playBtn = widget.NewButtonWithIcon(lang.L("Play"), fynetheme.MediaPlayIcon(), t.playLibrary)
+	t.playBtn.Importance = widget.HighImportance
+	t.shuffleBtn = widgets.NewIconButton(theme.ShuffleIcon, t.toggleShuffle)
+	t.shuffleBtn.SetToolTip(lang.L("Shuffle"))
+	t.shuffleBtn.Highlighted = t.contr.App.PlaybackManager.IsShuffle()
+
+	// clicking a track plays the whole library as the context:
+	// from that track onward in order, or that track + shuffled rest
+	t.tracklist.OnPlayTrackAt = t.playLibraryFromTrack
 	t.searcher = widgets.NewSearchEntry()
 	t.searcher.PlaceHolder = lang.L("Search page")
 	t.searcher.OnSearched = t.OnSearched
@@ -85,7 +92,7 @@ func NewTracksPage(contr *controller.Controller, conf *backend.TracksPageConfig,
 }
 
 func (t *TracksPage) createContainer() {
-	buttonsVbox := container.NewVBox(layout.NewSpacer(), container.NewHBox(t.playAll, t.shuffleAll, t.playRandom), layout.NewSpacer())
+	buttonsVbox := container.NewVBox(layout.NewSpacer(), container.NewHBox(t.playBtn, container.NewCenter(t.shuffleBtn)), layout.NewSpacer())
 	searchVbox := container.NewVBox(layout.NewSpacer(), t.searcher, layout.NewSpacer())
 	topRow := container.NewHBox(t.title, buttonsVbox, layout.NewSpacer(), searchVbox)
 	t.container = container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, TopPadding: 5, BottomPadding: 15},
@@ -115,9 +122,16 @@ func (t *TracksPage) Reload() {
 	t.loader = widgets.NewTracklistLoader(t.tracklist, iter)
 }
 
+var _ CanShowPlayTime = (*TracksPage)(nil)
+
+func (t *TracksPage) OnPlayTimeUpdate(_, _ float64, _ bool) {
+	t.syncShuffleBtn()
+}
+
 var _ CanShowNowPlaying = (*TracksPage)(nil)
 
 func (t *TracksPage) OnSongChange(item mediaprovider.MediaItem, lastScrobbledIfAny *mediaprovider.Track) {
+	t.syncShuffleBtn()
 	t.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(item)
 	t.tracklist.SetNowPlaying(t.nowPlayingID)
 	if t.searchTracklist != nil {
@@ -211,36 +225,63 @@ func (s *tracksPageState) Restore() Page {
 	return t
 }
 
-func (t *TracksPage) playRandomSongs() {
+// playLibrary starts the whole library as the play context,
+// in order or shuffled depending on the global shuffle toggle.
+func (t *TracksPage) playLibrary() {
+	pm := t.contr.App.PlaybackManager
+	shuffle := pm.IsShuffle()
 	go func() {
-		err := t.contr.App.PlaybackManager.PlayRandomSongs("")
-		if err != nil {
-			log.Printf("error playing random tracks: %v", err)
-			fyne.Do(func() {
-				t.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play random tracks"))
-			})
-		}
+		t.showErrToastIfErr(pm.PlayAllTracks(shuffle))
 	}()
 }
 
-func (t *TracksPage) playAllTracks() {
-	t.doPlayAllTracks(false)
-}
-
-func (t *TracksPage) shuffleAllTracks() {
-	t.doPlayAllTracks(true)
-}
-
-func (t *TracksPage) doPlayAllTracks(shuffle bool) {
+// playLibraryFromTrack plays the library context starting from the clicked
+// track: from there onward in order, or that track plus the shuffled rest.
+func (t *TracksPage) playLibraryFromTrack(idx int) {
+	tracks := t.tracklist.GetTracks()
+	if idx < 0 || idx >= len(tracks) {
+		return
+	}
+	pm := t.contr.App.PlaybackManager
+	shuffle := pm.IsShuffle()
+	clicked := tracks[idx]
+	fromClick := tracks[idx:]
+	totalLoaded := len(tracks)
 	go func() {
-		err := t.contr.App.PlaybackManager.PlayAllTracks(shuffle)
-		if err != nil {
-			log.Printf("error playing all tracks: %v", err)
-			fyne.Do(func() {
-				t.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play tracks"))
-			})
+		var err error
+		if shuffle {
+			err = pm.PlayLibraryShuffledFrom(clicked)
+		} else {
+			err = pm.PlayLibraryTracksFrom(fromClick, totalLoaded)
 		}
+		t.showErrToastIfErr(err)
 	}()
+}
+
+func (t *TracksPage) toggleShuffle() {
+	pm := t.contr.App.PlaybackManager
+	pm.SetShuffle(!pm.IsShuffle())
+	t.syncShuffleBtn()
+}
+
+// syncShuffleBtn reflects the global shuffle state on the page's toggle.
+// Called on user interaction and on playback events routed to this page,
+// since the page cannot durably subscribe to OnShuffleChange (pages are
+// recreated on every navigation and callbacks cannot be unregistered).
+func (t *TracksPage) syncShuffleBtn() {
+	if hl := t.contr.App.PlaybackManager.IsShuffle(); hl != t.shuffleBtn.Highlighted {
+		t.shuffleBtn.Highlighted = hl
+		t.shuffleBtn.Refresh()
+	}
+}
+
+func (t *TracksPage) showErrToastIfErr(err error) {
+	if err != nil {
+		log.Printf("error playing tracks: %v", err)
+		fyne.Do(func() {
+			t.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play tracks"))
+		})
+	}
 }
 
 func (t *TracksPage) obtainTracklist() *widgets.Tracklist {
