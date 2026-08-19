@@ -54,6 +54,13 @@ type PlaybackManager struct {
 	pendingAutoplay    bool
 	wasLoadTrackPaused bool
 
+	// state for Play All/Shuffle All library playback continuation
+	libPlaybackLock       sync.Mutex
+	libPlayback           *libraryPlayback
+	pendingLibraryEnqueue bool
+
+	bgCtx context.Context
+
 	// current radio metadata
 	radioStationName string
 	radioIcyTitle    string
@@ -86,7 +93,9 @@ func NewPlaybackManager(
 		cfg:         playbackCfg,
 		localPlayer: p,
 		cache:       c,
+		bgCtx:       ctx,
 	}
+	s.OnLogout(pm.cancelLibraryPlayback)
 	if c != nil {
 		pm.wfmGen = NewWaveformImageGenerator(c)
 	}
@@ -118,6 +127,15 @@ func (p *PlaybackManager) addOnTrackChangeHook() {
 	// send a command to the MPV player to force restart playback.
 	p.OnPlayTimeUpdate(func(curTime, totalTime float64, _ bool) {
 		p.lastPlayTime = curTime
+
+		// Refill the Play All/Shuffle All library queue well before the end,
+		// so the engine's next-track prefetch always has a track to hand the
+		// player. Takes precedence over autoplay while a continuation is active.
+		if shouldRefillLibraryQueue(p.engine.getPlayQueueLength(), p.NowPlayingIndex()) {
+			if p.enqueueNextLibraryBatch() {
+				return
+			}
+		}
 
 		// enqueue autoplay tracks if enabled and nearing end of queue
 		if p.cfg.Autoplay && !p.pendingAutoplay && totalTime-curTime < 10.0 &&
@@ -434,12 +452,16 @@ func (p *PlaybackManager) LoadPlaylist(playlistID string, insertQueueMode Insert
 // Load tracks into the play queue.
 // If replacing the current queue (!appendToQueue), playback will be stopped.
 func (p *PlaybackManager) LoadTracks(tracks []*mediaprovider.Track, insertQueueMode InsertQueueMode, shuffle bool) {
+	if insertQueueMode == Replace {
+		p.cancelLibraryPlayback()
+	}
 	items := sharedutil.CopyTrackSliceToMediaItemSlice(tracks)
 	p.cmdQueue.LoadItems(items, insertQueueMode, shuffle)
 }
 
 // Replaces the playQueue with tracks and moves the track at idx to position 0
 func (p *PlaybackManager) LoadTracksAndPlayAtIdx(tracks []*mediaprovider.Track, shuffle bool, idx int) {
+	p.cancelLibraryPlayback()
 	items := sharedutil.CopyTrackSliceToMediaItemSlice(tracks)
 	p.cmdQueue.LoadItemsAndPlayAtIdx(items, shuffle, idx)
 }
@@ -448,6 +470,9 @@ func (p *PlaybackManager) LoadTracksAndPlayAtIdx(tracks []*mediaprovider.Track, 
 // If replacing the current queue (!appendToQueue), playback will be stopped.
 // Loading items into the shuffledPlayQueue may also modify the playQueue
 func (p *PlaybackManager) LoadItems(items []mediaprovider.MediaItem, insertQueueMode InsertQueueMode, shuffle bool) {
+	if insertQueueMode == Replace {
+		p.cancelLibraryPlayback()
+	}
 	p.cmdQueue.LoadItems(items, insertQueueMode, shuffle)
 }
 
@@ -618,6 +643,9 @@ func (p *PlaybackManager) PlayRandomAlbums(genreName string) error {
 }
 
 func (p *PlaybackManager) LoadRadioStation(station *mediaprovider.RadioStation, queueMode InsertQueueMode) {
+	if queueMode == Replace {
+		p.cancelLibraryPlayback()
+	}
 	p.cmdQueue.LoadRadioStation(station, queueMode)
 }
 
@@ -669,6 +697,7 @@ func (p *PlaybackManager) RemoveTracksFromQueue(idxs []int) {
 
 // Stop playback and clear the play queue.
 func (p *PlaybackManager) StopAndClearPlayQueue() {
+	p.cancelLibraryPlayback()
 	p.cmdQueue.StopAndClearPlayQueue()
 }
 
