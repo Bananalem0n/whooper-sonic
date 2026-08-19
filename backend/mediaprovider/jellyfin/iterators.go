@@ -95,6 +95,9 @@ func (j *JellyfinMediaProvider) IterateTracks(searchQuery string) mediaprovider.
 		fetcher = func(offs, limit int) ([]*mediaprovider.Track, error) {
 			var opts jellyfin.QueryOpts
 			opts.Paging = jellyfin.Paging{StartIndex: offs, Limit: limit}
+			// sort explicitly: Jellyfin's default order is unspecified,
+			// which made the All Tracks page and Play All queue look random
+			opts.Sort = jellyfin.Sort{Field: jellyfin.SortByName, Mode: jellyfin.SortAsc}
 			if j.currentLibraryID != "" {
 				opts.Filter.ParentID = j.currentLibraryID
 			}
