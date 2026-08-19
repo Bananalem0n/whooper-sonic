@@ -55,6 +55,21 @@ func NewMultiHyperlink() *MultiHyperlink {
 	return c
 }
 
+// PreferredWidth returns the natural (untruncated) width of all
+// segments, mirroring the per-segment sizing in layoutObjects.
+// MinSize cannot be used for this since the widget truncates.
+func (m *MultiHyperlink) PreferredWidth() float32 {
+	var w float32
+	for i, seg := range m.Segments {
+		if i > 0 {
+			w += m.getSeparatorWidth() - theme.Padding()
+		}
+		w += fyne.MeasureText(seg.Text, theme.Size(m.sizeName()), fyne.TextStyle{}).Width +
+			theme.Padding()*2 + theme.InnerPadding() + 3
+	}
+	return w
+}
+
 func (m *MultiHyperlink) BuildSegments(texts, links []string) {
 	l := len(links)
 	m.Segments = nil

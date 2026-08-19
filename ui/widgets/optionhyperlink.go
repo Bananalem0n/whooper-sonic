@@ -58,6 +58,17 @@ func (o *OptionHyperlink) SetSizeName(name fyne.ThemeSizeName) {
 	o.BaseWidget.Refresh()
 }
 
+// PreferredWidth returns the natural (untruncated) width of the text
+// plus the menu button, if shown. MinSize cannot be used for this since
+// the truncating hyperlink reports a minimal size.
+func (o *OptionHyperlink) PreferredWidth() float32 {
+	w := o.layout.preferredWidth
+	if !o.b.Hidden {
+		w += o.b.MinSize().Width
+	}
+	return w
+}
+
 func (o *OptionHyperlink) SetOnTapped(f func()) {
 	o.h.OnTapped = f
 }

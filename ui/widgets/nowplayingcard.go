@@ -31,6 +31,7 @@ type NowPlayingCard struct {
 	menuBtn     *IconButton
 	menu        *widget.PopUpMenu
 	ratingMenu  *fyne.MenuItem
+	textLayout  textWithTrailingButtonsLayout
 
 	OnTrackNameTapped  func()
 	OnArtistNameTapped func(artistID string)
@@ -140,20 +141,26 @@ func (n *NowPlayingCard) CreateRenderer() fyne.WidgetRenderer {
 	actionBtns := container.NewVBox(layout.NewSpacer(),
 		container.NewHBox(n.addPlaylist, util.NewHSpace(6), n.menuBtn),
 		layout.NewSpacer())
-	textBlock := container.New(&layout.CustomPaddedLayout{TopPadding: -2},
-		container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-13), n.trackName, n.artistName))
+	// text rows vertically centered so they share a midline with the buttons
+	textBlock := container.NewVBox(layout.NewSpacer(),
+		container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-13), n.trackName, n.artistName),
+		layout.NewSpacer())
 	// custom layout keeps the action buttons right after the (possibly
 	// truncated) text block, with padding so they never touch it
+	n.textLayout.gap = 10
 	c := container.NewBorder(nil, nil, paddedCover, nil,
-		container.New(&textWithTrailingButtonsLayout{gap: 10}, textBlock, actionBtns))
+		container.New(&n.textLayout, textBlock, actionBtns))
 	return widget.NewSimpleRenderer(c)
 }
 
 // textWithTrailingButtonsLayout lays out two objects: a text block that
 // may be truncated, and a buttons block placed immediately after the
 // text's natural width (plus a gap), never overlapping it.
+// textWidth must be set to the text's natural width by the owner;
+// the truncating text widgets report useless MinSize widths.
 type textWithTrailingButtonsLayout struct {
-	gap float32
+	gap       float32
+	textWidth float32
 }
 
 func (l *textWithTrailingButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
@@ -163,7 +170,7 @@ func (l *textWithTrailingButtonsLayout) MinSize(objects []fyne.CanvasObject) fyn
 
 func (l *textWithTrailingButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	btnW := objects[1].MinSize().Width
-	textW := fyne.Max(0, fyne.Min(objects[0].MinSize().Width, size.Width-btnW-l.gap))
+	textW := fyne.Max(0, fyne.Min(l.textWidth, size.Width-btnW-l.gap))
 	objects[0].Resize(fyne.NewSize(textW, size.Height))
 	objects[0].Move(fyne.NewPos(0, 0))
 	objects[1].Resize(fyne.NewSize(btnW, size.Height))
@@ -196,6 +203,8 @@ func (n *NowPlayingCard) Update(track mediaprovider.MediaItem) {
 		n.menuBtn.Disable()
 	}
 	n.artistName.Hidden = len(n.artistName.Segments) == 0
+	// natural text width drives where the action buttons sit
+	n.textLayout.textWidth = fyne.Max(n.trackName.PreferredWidth(), n.artistName.PreferredWidth())
 	n.Refresh()
 }
 
