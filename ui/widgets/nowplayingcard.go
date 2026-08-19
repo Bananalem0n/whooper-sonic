@@ -26,12 +26,14 @@ type NowPlayingCard struct {
 	DisableRating bool
 	ShowAlbumYear bool
 
-	trackName  *OptionHyperlink
-	artistName *MultiHyperlink
-	albumName  *MultiHyperlink
-	cover      *ImagePlaceholder
-	menu       *widget.PopUpMenu
-	ratingMenu *fyne.MenuItem
+	trackName   *OptionHyperlink
+	artistName  *MultiHyperlink
+	albumName   *MultiHyperlink
+	cover       *ImagePlaceholder
+	addPlaylist *IconButton
+	menuBtn     *IconButton
+	menu        *widget.PopUpMenu
+	ratingMenu  *fyne.MenuItem
 
 	albumYear string
 
@@ -53,7 +55,7 @@ func NewNowPlayingCard() *NowPlayingCard {
 		albumName:  NewMultiHyperlink(),
 	}
 	n.ExtendBaseWidget(n)
-	n.cover = NewImagePlaceholder(myTheme.TracksIcon, 85)
+	n.cover = NewImagePlaceholder(myTheme.TracksIcon, 76)
 	n.cover.OnTapped = n.onShowCoverImage
 	n.cover.ScaleMode = canvas.ImageScaleFastest
 	n.cover.Hidden = true
@@ -62,10 +64,23 @@ func NewNowPlayingCard() *NowPlayingCard {
 	n.albumName.SuffixParenthesized = true
 	n.albumName.SuffixSizeName = myTheme.SizeNameSubText
 	n.trackName.SetTextStyle(fyne.TextStyle{Bold: true})
-	n.trackName.OnShowMenu = n.showMenu
+	// the options menu lives on a standalone button next to the
+	// quick add-to-playlist button, not attached to the track name
+	n.trackName.SetMenuBtnEnabled(false)
 	n.albumName.OnTapped = n.onAlbumNameTapped
 	n.artistName.OnTapped = n.onArtistNameTapped
 	n.trackName.SetOnTapped(n.onTrackNameTapped)
+
+	n.addPlaylist = NewIconButton(theme.ContentAddIcon(), n.onAddToPlaylist)
+	n.addPlaylist.IconSize = IconButtonSizeSmaller
+	n.addPlaylist.SetToolTip(lang.L("Add to playlist"))
+	n.addPlaylist.Disable()
+	n.menuBtn = NewIconButton(theme.MoreVerticalIcon(), func() {
+		n.showMenu(fyne.CurrentApp().Driver().AbsolutePositionForObject(n.menuBtn))
+	})
+	n.menuBtn.IconSize = IconButtonSizeSmaller
+	n.menuBtn.SetToolTip(lang.L("More options"))
+	n.menuBtn.Disable()
 
 	return n
 }
@@ -130,11 +145,18 @@ func (n *NowPlayingCard) onShare() {
 }
 
 func (n *NowPlayingCard) CreateRenderer() fyne.WidgetRenderer {
-	c := container.New(&layout.CustomPaddedLayout{LeftPadding: -4},
-		container.NewBorder(nil, nil, n.cover, nil,
-			container.New(&layout.CustomPaddedLayout{TopPadding: -2},
-				container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-13), n.trackName, n.artistName, n.albumName))),
-	)
+	// pad the cover so it doesn't touch the window corner/edges
+	paddedCover := container.New(
+		&layout.CustomPaddedLayout{LeftPadding: 5, TopPadding: 4, BottomPadding: 5},
+		n.cover)
+	// quick add-to-playlist, then more options, vertically centered
+	// to the right of the track/artist/album text block
+	actionBtns := container.NewVBox(layout.NewSpacer(),
+		container.NewHBox(n.addPlaylist, n.menuBtn),
+		layout.NewSpacer())
+	c := container.NewBorder(nil, nil, paddedCover, actionBtns,
+		container.New(&layout.CustomPaddedLayout{TopPadding: -2},
+			container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-13), n.trackName, n.artistName, n.albumName)))
 	return widget.NewSimpleRenderer(c)
 }
 
@@ -161,7 +183,14 @@ func (n *NowPlayingCard) Update(track mediaprovider.MediaItem) {
 		}
 	}
 	n.trackName.Hidden = n.trackName.Text() == ""
-	n.trackName.SetMenuBtnEnabled(n.cover.PlaceholderIcon != myTheme.RadioIcon)
+	// playlist add / options only apply to real tracks (not radio, not stopped)
+	if _, isTrack := track.(*mediaprovider.Track); isTrack && n.cover.PlaceholderIcon != myTheme.RadioIcon {
+		n.addPlaylist.Enable()
+		n.menuBtn.Enable()
+	} else {
+		n.addPlaylist.Disable()
+		n.menuBtn.Disable()
+	}
 	n.artistName.Hidden = len(n.artistName.Segments) == 0
 	n.albumName.Hidden = len(n.albumName.Segments) == 0
 	n.Refresh()

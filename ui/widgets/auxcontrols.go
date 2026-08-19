@@ -54,14 +54,15 @@ func NewAuxControls(initialVolume int, initialAutoplay bool) *AuxControls {
 	a.showQueue.IconSize = IconButtonSizeSmaller
 	a.showQueue.SetToolTip(lang.L("Show play queue"))
 
+	// single compact row, Spotify-style:
+	// [autoplay] [cast] [queue] [volume icon + slider]
 	a.container = container.NewHBox(
 		layout.NewSpacer(),
 		container.NewVBox(
 			layout.NewSpacer(),
-			a.VolumeControl,
 			container.New(
 				layout.NewCustomPaddedHBoxLayout(theme.Padding()*1.5),
-				layout.NewSpacer(), a.autoplay, a.cast, a.showQueue, util.NewHSpace(5)),
+				layout.NewSpacer(), a.autoplay, a.cast, a.showQueue, a.VolumeControl, util.NewHSpace(5)),
 			layout.NewSpacer(),
 		),
 	)

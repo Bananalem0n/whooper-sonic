@@ -180,7 +180,8 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 		pc.waveform,
 	)
 	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, seekCtrl)
-	pc.container = container.New(layout.NewCustomPaddedVBoxLayout(0), c, buttons)
+	// transport buttons above the seek bar, Spotify-style
+	pc.container = container.New(layout.NewCustomPaddedVBoxLayout(0), buttons, c)
 
 	return pc
 }
