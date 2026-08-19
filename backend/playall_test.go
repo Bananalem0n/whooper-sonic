@@ -53,7 +53,7 @@ func drainAllBatches(t *testing.T, lp *libraryPlayback, batchSize int) []*mediap
 
 func TestLibraryPlaybackInOrder(t *testing.T) {
 	tracks := makeFakeTracks(25)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, false, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, false, nil, nil)
 
 	b1 := lp.NextBatch(10)
 	b2 := lp.NextBatch(10)
@@ -77,7 +77,7 @@ func TestLibraryPlaybackInOrder(t *testing.T) {
 
 func TestLibraryPlaybackShuffleAllExactlyOnce(t *testing.T) {
 	tracks := makeFakeTracks(250)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, nil, nil)
 
 	got := drainAllBatches(t, lp, 100)
 	if len(got) != len(tracks) {
@@ -109,7 +109,7 @@ func TestLibraryPlaybackShuffleAllExactlyOnce(t *testing.T) {
 func TestLibraryPlaybackShuffleFilter(t *testing.T) {
 	tracks := makeFakeTracks(60)
 	filter := func(tr *mediaprovider.Track) bool { return tr.Rating != 1 }
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, filter)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, filter, nil)
 
 	got := drainAllBatches(t, lp, 25)
 	for _, tr := range got {
@@ -130,7 +130,7 @@ func TestLibraryPlaybackShuffleFilter(t *testing.T) {
 
 func TestLibraryPlaybackCancel(t *testing.T) {
 	tracks := makeFakeTracks(50)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, nil, nil)
 
 	if b := lp.NextBatch(10); len(b) != 10 {
 		t.Fatalf("expected 10 tracks before cancel, got %d", len(b))
@@ -146,7 +146,7 @@ func TestLibraryPlaybackCancel(t *testing.T) {
 
 func TestLibraryPlaybackInOrderCancel(t *testing.T) {
 	tracks := makeFakeTracks(50)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, false, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, false, nil, nil)
 
 	if b := lp.NextBatch(10); len(b) != 10 {
 		t.Fatalf("expected 10 tracks before cancel, got %d", len(b))
@@ -157,6 +157,29 @@ func TestLibraryPlaybackInOrderCancel(t *testing.T) {
 	}
 	if !lp.Done() {
 		t.Error("expected Done after cancel")
+	}
+}
+
+// Shuffle All seeds the queue with a server-random batch for an instant,
+// library-wide-uniform start; the pool must then exclude those seed IDs
+// so no track plays twice.
+func TestLibraryPlaybackShuffleExcludesSeedIDs(t *testing.T) {
+	tracks := makeFakeTracks(120)
+	exclude := map[string]bool{
+		tracks[0].ID:   true,
+		tracks[50].ID:  true,
+		tracks[119].ID: true,
+	}
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks}, true, nil, exclude)
+
+	got := drainAllBatches(t, lp, 50)
+	if len(got) != len(tracks)-len(exclude) {
+		t.Fatalf("expected %d tracks, got %d", len(tracks)-len(exclude), len(got))
+	}
+	for _, tr := range got {
+		if exclude[tr.ID] {
+			t.Fatalf("excluded track %s came out of the pool", tr.ID)
+		}
 	}
 }
 
@@ -193,7 +216,7 @@ func TestShouldRefillLibraryQueue(t *testing.T) {
 // seconds the engine's gapless prefetch allows.
 func TestLibraryPlaybackInOrderSlowIteratorStillFillsBatch(t *testing.T) {
 	tracks := makeFakeTracks(30)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks, delay: 3 * time.Millisecond}, false, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks, delay: 3 * time.Millisecond}, false, nil, nil)
 
 	start := time.Now()
 	batch := lp.NextBatch(20)
@@ -218,7 +241,7 @@ func TestLibraryPlaybackShuffleReturnsPartialWhileLoading(t *testing.T) {
 	// as soon as at least one track is available rather than waiting
 	// for the full batch size
 	tracks := makeFakeTracks(30)
-	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks, delay: 2 * time.Millisecond}, true, nil)
+	lp := newLibraryPlayback(nil, &fakeTrackIterator{tracks: tracks, delay: 2 * time.Millisecond}, true, nil, nil)
 
 	start := time.Now()
 	b := lp.NextBatch(1000)

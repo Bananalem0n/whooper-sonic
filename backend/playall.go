@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -60,12 +61,15 @@ type libraryPlayback struct {
 
 // newLibraryPlayback creates a libraryPlayback reading from iter.
 // filter, if non-nil, excludes tracks from shuffle mode (ignored in-order).
+// exclude, if non-nil, is a set of track IDs kept out of the shuffle pool —
+// used for tracks already enqueued by the caller (seed batch, clicked track)
+// so that they are not played a second time.
 // If ctx is non-nil, the libraryPlayback is canceled when ctx is done.
-func newLibraryPlayback(ctx context.Context, iter mediaprovider.TrackIterator, shuffle bool, filter func(*mediaprovider.Track) bool) *libraryPlayback {
+func newLibraryPlayback(ctx context.Context, iter mediaprovider.TrackIterator, shuffle bool, filter func(*mediaprovider.Track) bool, exclude map[string]bool) *libraryPlayback {
 	lp := &libraryPlayback{shuffle: shuffle, iter: iter}
 	lp.cond = sync.NewCond(&lp.mutex)
 	if shuffle {
-		go lp.drainIterator(filter)
+		go lp.drainIterator(filter, exclude)
 	}
 	if ctx != nil {
 		context.AfterFunc(ctx, lp.Cancel)
@@ -165,6 +169,11 @@ func (lp *libraryPlayback) nextShuffledBatch(n int) []*mediaprovider.Track {
 // PlayAllTracks plays the entire library, either in order or shuffled.
 // The first batch begins playback immediately; the remainder of the
 // library is enqueued progressively as playback nears the end of the queue.
+//
+// In shuffle mode the first batch is fetched with GetRandomTracks so the
+// start is instant and uniform over the whole library, rather than a
+// shuffle of however much of the background pool has loaded so far.
+// The pool then excludes the seed IDs, preserving exactly-once coverage.
 func (p *PlaybackManager) PlayAllTracks(shuffle bool) error {
 	s := p.engine.sm.GetServer()
 	if s == nil {
@@ -172,16 +181,23 @@ func (p *PlaybackManager) PlayAllTracks(shuffle bool) error {
 	}
 	p.cancelLibraryPlayback()
 
-	var filter func(*mediaprovider.Track) bool
+	filter := p.shuffleSkipFilter(shuffle)
+
+	var seed []*mediaprovider.Track
 	if shuffle {
-		filter = func(t *mediaprovider.Track) bool {
-			skipKwd := p.cfg.SkipKeywordWhenShuffling
-			return (skipKwd == "" || !strcase.Contains(t.Title, skipKwd)) &&
-				(!p.cfg.SkipOneStarWhenShuffling || t.Rating != 1)
+		if random, err := s.GetRandomTracks("", p.appCfg.EnqueueBatchSize); err != nil {
+			log.Printf("shuffle all: falling back to pool for first batch: %v", err)
+		} else {
+			seed = sharedutil.FilterSlice(random, filter)
 		}
 	}
-	lp := newLibraryPlayback(p.bgCtx, s.IterateTracks(""), shuffle, filter)
-	batch := lp.NextBatch(p.appCfg.EnqueueBatchSize)
+
+	lp := newLibraryPlayback(p.bgCtx, s.IterateTracks(""), shuffle, filter, trackIDSet(seed))
+	batch := seed
+	if len(batch) == 0 {
+		// in-order mode, or the random-seed fetch failed/returned nothing
+		batch = lp.NextBatch(p.appCfg.EnqueueBatchSize)
+	}
 	if len(batch) == 0 {
 		lp.Cancel()
 		return errors.New("no tracks found")
@@ -197,6 +213,31 @@ func (p *PlaybackManager) PlayAllTracks(shuffle bool) error {
 		p.libPlaybackLock.Unlock()
 	}
 	return nil
+}
+
+// shuffleSkipFilter returns the user-configured shuffle exclusion filter,
+// or nil when not shuffling.
+func (p *PlaybackManager) shuffleSkipFilter(shuffle bool) func(*mediaprovider.Track) bool {
+	if !shuffle {
+		return nil
+	}
+	return func(t *mediaprovider.Track) bool {
+		skipKwd := p.cfg.SkipKeywordWhenShuffling
+		return (skipKwd == "" || !strcase.Contains(t.Title, skipKwd)) &&
+			(!p.cfg.SkipOneStarWhenShuffling || t.Rating != 1)
+	}
+}
+
+// trackIDSet returns the set of IDs in tracks, or nil for an empty slice.
+func trackIDSet(tracks []*mediaprovider.Track) map[string]bool {
+	if len(tracks) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(tracks))
+	for _, t := range tracks {
+		ids[t.ID] = true
+	}
+	return ids
 }
 
 // cancelLibraryPlayback cancels any active Play All/Shuffle All continuation.
@@ -249,7 +290,7 @@ func (p *PlaybackManager) enqueueNextLibraryBatch() bool {
 
 // drainIterator pulls the entire library into the pool, pacing itself
 // with a short pause between chunks so as not to hammer the server.
-func (lp *libraryPlayback) drainIterator(filter func(*mediaprovider.Track) bool) {
+func (lp *libraryPlayback) drainIterator(filter func(*mediaprovider.Track) bool, exclude map[string]bool) {
 	pulled := 0
 	for {
 		if lp.isCanceled() {
@@ -263,7 +304,7 @@ func (lp *libraryPlayback) drainIterator(filter func(*mediaprovider.Track) bool)
 			lp.mutex.Unlock()
 			return
 		}
-		if filter == nil || filter(tr) {
+		if (filter == nil || filter(tr)) && !exclude[tr.ID] {
 			lp.mutex.Lock()
 			lp.pool = append(lp.pool, tr)
 			lp.cond.Broadcast()
