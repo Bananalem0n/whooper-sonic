@@ -59,7 +59,7 @@ func NewAuxControls(initialVolume int, initialAutoplay bool) *AuxControls {
 		container.NewVBox(
 			layout.NewSpacer(),
 			container.New(
-				layout.NewCustomPaddedHBoxLayout(theme.Padding()*1.5),
+				layout.NewCustomPaddedHBoxLayout(theme.Padding()*2.75),
 				layout.NewSpacer(), a.autoplay, a.cast, a.showQueue, a.VolumeControl, util.NewHSpace(5)),
 			layout.NewSpacer(),
 		),

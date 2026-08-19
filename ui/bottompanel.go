@@ -53,7 +53,6 @@ func NewBottomPanel(pm *backend.PlaybackManager, im *backend.ImageManager, contr
 	}))
 
 	bp.NowPlaying = widgets.NewNowPlayingCard()
-	bp.NowPlaying.ShowAlbumYear = cfg.AlbumsPage.ShowYears
 	bp.NowPlaying.OnCoverTapped = func() {
 		contr.NavigateTo(controller.NowPlayingRoute())
 	}
@@ -71,9 +70,6 @@ func NewBottomPanel(pm *backend.PlaybackManager, im *backend.ImageManager, contr
 		if tr, ok := pm.NowPlaying().(*mediaprovider.Track); ok {
 			contr.DoAddTracksToPlaylistWorkflow([]string{tr.ID})
 		}
-	}
-	bp.NowPlaying.OnAlbumNameTapped = func(albumID string) {
-		contr.NavigateTo(controller.AlbumRoute(albumID))
 	}
 	bp.NowPlaying.OnArtistNameTapped = func(artistID string) {
 		contr.NavigateTo(controller.ArtistRoute(artistID))
@@ -170,7 +166,6 @@ func (bp *BottomPanel) updateWaveformImg(img *backend.WaveformImage) {
 }
 
 func (bp *BottomPanel) Refresh() {
-	bp.NowPlaying.ShowAlbumYear = bp.cfg.AlbumsPage.ShowYears
 	bp.BaseWidget.Refresh()
 }
 

@@ -1,8 +1,6 @@
 package widgets
 
 import (
-	"image/color"
-
 	"github.com/supersonic-app/supersonic/backend"
 	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 	"github.com/supersonic-app/supersonic/ui/util"
@@ -15,75 +13,6 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// TrackPosSlider is a custom slider that exposes an additional
-// IsDragging() API as well as some other customizations
-type TrackPosSlider struct {
-	widget.Slider
-
-	// to avoid "data echoes" when slider value is updated as
-	// playback position changes
-	IgnoreNextChangeEnded bool
-
-	isDragging bool
-}
-
-func NewTrackPosSlider() *TrackPosSlider {
-	slider := &TrackPosSlider{
-		Slider: widget.Slider{
-			Value:       0,
-			Min:         0,
-			Max:         1,
-			Step:        0.002,
-			Orientation: widget.Horizontal,
-		},
-	}
-	slider.ExtendBaseWidget(slider)
-	return slider
-}
-
-func (t *TrackPosSlider) SetValue(value float64) {
-	t.IgnoreNextChangeEnded = true
-	t.Slider.SetValue(value)
-}
-
-func (t *TrackPosSlider) Tapped(e *fyne.PointEvent) {
-	t.isDragging = false
-	t.IgnoreNextChangeEnded = false
-	t.Slider.Tapped(e)
-
-	// don't keep focus after being tapped
-	if c := fyne.CurrentApp().Driver().CanvasForObject(t); c != nil {
-		c.Unfocus()
-	}
-}
-
-// override to increase the distance moved by keyboard control
-func (t *TrackPosSlider) TypedKey(e *fyne.KeyEvent) {
-	switch e.Name {
-	case fyne.KeyLeft:
-		t.Slider.SetValue(t.Value - 0.05)
-	case fyne.KeyRight:
-		t.Slider.SetValue(t.Value + 0.05)
-	default:
-		t.Slider.TypedKey(e)
-	}
-}
-
-func (t *TrackPosSlider) DragEnd() {
-	t.isDragging = false
-	t.IgnoreNextChangeEnded = false
-	t.Slider.DragEnd()
-}
-
-func (t *TrackPosSlider) Dragged(e *fyne.DragEvent) {
-	t.isDragging = true
-	t.Slider.Dragged(e)
-}
-
-func (t *TrackPosSlider) IsDragging() bool {
-	return t.isDragging
-}
-
 type PlayerControls struct {
 	widget.BaseWidget
 
@@ -91,7 +20,7 @@ type PlayerControls struct {
 
 	OnChangeShuffle func(shuffle bool)
 
-	slider         *TrackPosSlider
+	seekbar        *FlatSeekbar
 	waveform       *WaveformSeekbar
 	curTimeLabel   *labelMinSize
 	totalTimeLabel *labelMinSize
@@ -127,12 +56,12 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 	pc := &PlayerControls{UseWaveformSeekbar: useWaveformSeekbar}
 	pc.ExtendBaseWidget(pc)
 
-	pc.slider = NewTrackPosSlider()
-	pc.slider.Disable()
+	pc.seekbar = NewFlatSeekbar()
+	pc.seekbar.Disable()
 	pc.waveform = NewWaveformSeekbar()
 	pc.waveform.Disable()
 	if useWaveformSeekbar {
-		pc.slider.Hidden = true
+		pc.seekbar.Hidden = true
 	} else {
 		pc.waveform.Hidden = true
 	}
@@ -144,11 +73,8 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 	pc.totalTimeLabel.Alignment = fyne.TextAlignTrailing
 	pc.totalTimeLabel.SizeName = myTheme.SizeNameSubText
 
-	pc.slider.OnChanged = func(f float64) {
-		if pc.slider.IsDragging() {
-			time := f * pc.totalTime
-			pc.curTimeLabel.SetText(util.SecondsToMMSS(time))
-		}
+	pc.seekbar.OnDragging = func(f float64) {
+		pc.curTimeLabel.SetText(util.SecondsToMMSS(f * pc.totalTime))
 	}
 
 	pc.shuffle = NewIconButton(myTheme.ShuffleIcon, nil)
@@ -181,18 +107,10 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 	buttons := container.NewHBox(layout.NewSpacer(), pc.shuffle, util.NewHSpace(2), pc.prev, pc.playpause, pc.next, util.NewHSpace(2), pc.loop, layout.NewSpacer())
 
 	seekCtrl := container.NewStack(
-		pc.slider,
+		pc.seekbar,
 		pc.waveform,
 	)
-	// dim the slider's rail so the track line is subdued, Spotify-style,
-	// while the labels and thumb keep their normal colors
-	dimmedSeek := container.NewThemeOverride(seekCtrl, myTheme.WithColorTransformOverride(
-		theme.ColorNameInputBackground,
-		func(c color.Color) color.Color {
-			r, g, b, a := c.RGBA()
-			return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8((a >> 8) / 2)}
-		}))
-	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, dimmedSeek)
+	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, seekCtrl)
 	// transport buttons above the seek bar, Spotify-style; pushed down
 	// from the top edge, tight to the seek bar, which sits near the bottom
 	pc.container = container.New(&layout.CustomPaddedLayout{TopPadding: 4, BottomPadding: 2},
@@ -202,13 +120,7 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 }
 
 func (pc *PlayerControls) OnSeek(f func(float64)) {
-	pc.slider.OnChangeEnded = func(pos float64) {
-		if pc.slider.IgnoreNextChangeEnded {
-			pc.slider.IgnoreNextChangeEnded = false
-		} else {
-			f(pos)
-		}
-	}
+	pc.seekbar.OnSeeked = f
 	pc.waveform.OnSeeked = f
 }
 
@@ -274,13 +186,13 @@ func (pc *PlayerControls) UpdatePlayTime(curTime, totalTime float64) {
 		updated = true
 	}
 	if totalTime > 0 {
-		pc.slider.Enable()
+		pc.seekbar.Enable()
 		pc.waveform.Enable()
 	} else {
-		pc.slider.Disable()
+		pc.seekbar.Disable()
 		pc.waveform.Disable()
 	}
-	if !pc.slider.IsDragging() {
+	if !pc.seekbar.IsDragging() {
 		ct := util.SecondsToMMSS(curTime)
 		if ct != pc.curTimeLabel.Text {
 			pc.curTimeLabel.SetText(ct)
@@ -288,8 +200,8 @@ func (pc *PlayerControls) UpdatePlayTime(curTime, totalTime float64) {
 		}
 		pc.waveform.SetProgress(v)
 		if updated {
-			// Only update slider once a second when time label changes
-			pc.slider.SetValue(v)
+			// Only update seekbar once a second when time label changes
+			pc.seekbar.SetProgress(v)
 		}
 	}
 }
@@ -300,7 +212,7 @@ func (p *PlayerControls) UpdateWaveformImg(img *backend.WaveformImage) {
 
 func (p *PlayerControls) Refresh() {
 	p.waveform.Hidden = !p.UseWaveformSeekbar
-	p.slider.Hidden = p.UseWaveformSeekbar
+	p.seekbar.Hidden = p.UseWaveformSeekbar
 	p.BaseWidget.Refresh()
 }
 
