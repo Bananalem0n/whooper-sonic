@@ -15,56 +15,51 @@ import (
 	"github.com/supersonic-app/supersonic/ui/util"
 )
 
-// The "aux" controls for playback, positioned to the right
-// of the BottomPanel. Currently only volume control.
+// The "aux" controls for playback, positioned to the right of the
+// BottomPanel: play queue, volume, cast, and miniplayer buttons.
 type AuxControls struct {
 	widget.BaseWidget
 
-	OnChangeAutoplay func(autoplay bool)
-
 	VolumeControl *VolumeControl
-	autoplay      *IconButton
 	cast          *IconButton
 	showQueue     *IconButton
+	miniplayer    *IconButton
 
 	container *fyne.Container
 }
 
-func NewAuxControls(initialVolume int, initialAutoplay bool) *AuxControls {
+func NewAuxControls(initialVolume int) *AuxControls {
 	a := &AuxControls{
 		VolumeControl: NewVolumeControl(initialVolume),
-		autoplay:      NewIconButton(myTheme.AutoplayIcon, nil),
 		cast:          NewIconButton(myTheme.CastIcon, nil),
 		showQueue:     NewIconButton(myTheme.PlayQueueIcon, nil),
+		miniplayer:    NewIconButton(theme.ViewRestoreIcon(), nil),
 	}
 
 	a.cast.SetToolTip(lang.L("Cast to device"))
-
-	a.autoplay.Highlighted = initialAutoplay
-	// a.autoplay.IconSize = IconButtonSizeSmaller
-	a.autoplay.SetToolTip(lang.L("Autoplay"))
-	a.autoplay.OnTapped = func() {
-		a.SetAutoplay(!a.autoplay.Highlighted)
-		if a.OnChangeAutoplay != nil {
-			a.OnChangeAutoplay(a.autoplay.Highlighted)
-		}
-	}
-
 	a.showQueue.SetToolTip(lang.L("Show play queue"))
+	a.miniplayer.SetToolTip(lang.L("Miniplayer"))
 
 	// single compact row, Spotify-style:
-	// [autoplay] [cast] [queue] [volume icon + slider]
+	// [queue] [volume icon + slider]   [cast] [miniplayer]
 	a.container = container.NewHBox(
 		layout.NewSpacer(),
 		container.NewVBox(
 			layout.NewSpacer(),
 			container.New(
 				layout.NewCustomPaddedHBoxLayout(theme.Padding()*2.75),
-				layout.NewSpacer(), a.autoplay, a.cast, a.showQueue, a.VolumeControl, util.NewHSpace(5)),
+				layout.NewSpacer(), a.showQueue, a.VolumeControl, util.NewHSpace(14),
+				a.cast, a.miniplayer, util.NewHSpace(5)),
 			layout.NewSpacer(),
 		),
 	)
 	return a
+}
+
+// OnShowMiniplayer sets the callback for the miniplayer button.
+// The always-on-top miniplayer itself is not implemented yet.
+func (a *AuxControls) OnShowMiniplayer(f func()) {
+	a.miniplayer.OnTapped = f
 }
 
 func (a *AuxControls) CreateRenderer() fyne.WidgetRenderer {
@@ -80,14 +75,6 @@ func (a *AuxControls) SetIsRemotePlayer(isRemote bool) {
 	a.cast.Enable()
 	a.cast.Highlighted = isRemote
 	a.cast.Refresh()
-}
-
-func (a *AuxControls) SetAutoplay(autoplay bool) {
-	if autoplay == a.autoplay.Highlighted {
-		return
-	}
-	a.autoplay.Highlighted = autoplay
-	a.autoplay.Refresh()
 }
 
 func (a *AuxControls) OnShowPlayQueue(f func()) {
