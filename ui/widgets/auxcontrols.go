@@ -159,7 +159,7 @@ func NewVolumeControl(initialVol int) *VolumeControl {
 	v.ExtendBaseWidget(v)
 	v.icon = NewIconButton(theme.VolumeUpIcon(), v.toggleMute)
 	v.icon.SetToolTip(lang.L("Mute"))
-	v.slider = NewVolumeSlider(100)
+	v.slider = NewVolumeSlider(85)
 	v.lastVol = initialVol
 	v.slider.Step = 1
 	v.slider.Orientation = widget.Horizontal

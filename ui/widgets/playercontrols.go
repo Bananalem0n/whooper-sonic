@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"image/color"
+
 	"github.com/supersonic-app/supersonic/backend"
 	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 	"github.com/supersonic-app/supersonic/ui/util"
@@ -134,15 +136,13 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 	} else {
 		pc.waveform.Hidden = true
 	}
-	// time labels are de-emphasized: smaller and dimmer, just visible
+	// time labels: smaller than body text but fully readable
 	pc.curTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 46)
 	pc.curTimeLabel.Alignment = fyne.TextAlignTrailing
 	pc.curTimeLabel.SizeName = myTheme.SizeNameSubText
-	pc.curTimeLabel.Importance = widget.LowImportance
 	pc.totalTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 46)
 	pc.totalTimeLabel.Alignment = fyne.TextAlignTrailing
 	pc.totalTimeLabel.SizeName = myTheme.SizeNameSubText
-	pc.totalTimeLabel.Importance = widget.LowImportance
 
 	pc.slider.OnChanged = func(f float64) {
 		if pc.slider.IsDragging() {
@@ -184,10 +184,18 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 		pc.slider,
 		pc.waveform,
 	)
-	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, seekCtrl)
+	// dim the slider's rail so the track line is subdued, Spotify-style,
+	// while the labels and thumb keep their normal colors
+	dimmedSeek := container.NewThemeOverride(seekCtrl, myTheme.WithColorTransformOverride(
+		theme.ColorNameInputBackground,
+		func(c color.Color) color.Color {
+			r, g, b, a := c.RGBA()
+			return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8((a >> 8) / 2)}
+		}))
+	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, dimmedSeek)
 	// transport buttons above the seek bar, Spotify-style; pushed down
 	// from the top edge, tight to the seek bar, which sits near the bottom
-	pc.container = container.New(&layout.CustomPaddedLayout{TopPadding: 10, BottomPadding: 2},
+	pc.container = container.New(&layout.CustomPaddedLayout{TopPadding: 4, BottomPadding: 2},
 		container.New(layout.NewCustomPaddedVBoxLayout(-6), buttons, c))
 
 	return pc

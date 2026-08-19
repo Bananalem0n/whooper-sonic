@@ -55,7 +55,7 @@ func NewNowPlayingCard() *NowPlayingCard {
 		albumName:  NewMultiHyperlink(),
 	}
 	n.ExtendBaseWidget(n)
-	n.cover = NewImagePlaceholder(myTheme.TracksIcon, 76)
+	n.cover = NewImagePlaceholder(myTheme.TracksIcon, 62)
 	n.cover.OnTapped = n.onShowCoverImage
 	n.cover.ScaleMode = canvas.ImageScaleFastest
 	n.cover.Hidden = true
@@ -91,7 +91,7 @@ func NewNowPlayingCard() *NowPlayingCard {
 
 func (n *NowPlayingCard) MinSize() fyne.Size {
 	// prop up height for when cover image is hidden
-	return fyne.NewSize(n.BaseWidget.MinSize().Width, 85)
+	return fyne.NewSize(n.BaseWidget.MinSize().Width, 72)
 }
 
 func (n *NowPlayingCard) onAlbumNameTapped(albumID string) {
