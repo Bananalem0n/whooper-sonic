@@ -54,9 +54,8 @@ func NewNowPlayingCard() *NowPlayingCard {
 	n.cover.ScaleMode = canvas.ImageScaleFastest
 	n.cover.Hidden = true
 	n.trackName.Hidden = true
-	// smaller text throughout; the bold track name keeps the hierarchy
+	// bold title one size step above the artist line
 	n.trackName.SetTextStyle(fyne.TextStyle{Bold: true})
-	n.trackName.SetSizeName(myTheme.SizeNameSubText)
 	n.artistName.SizeName = myTheme.SizeNameSubText
 	// the options menu lives on a standalone button next to the
 	// quick add-to-playlist button, not attached to the track name
@@ -143,7 +142,7 @@ func (n *NowPlayingCard) CreateRenderer() fyne.WidgetRenderer {
 		layout.NewSpacer())
 	// text rows vertically centered so they share a midline with the buttons
 	textBlock := container.NewVBox(layout.NewSpacer(),
-		container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-13), n.trackName, n.artistName),
+		container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-15), n.trackName, n.artistName),
 		layout.NewSpacer())
 	// custom layout keeps the action buttons right after the (possibly
 	// truncated) text block, with padding so they never touch it
