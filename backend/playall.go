@@ -56,6 +56,7 @@ type libraryPlayback struct {
 	pool        []*mediaprovider.Track // shuffle mode: tracks not yet enqueued
 	doneLoading bool                   // shuffle mode: iterator fully drained
 	iterDone    bool                   // in-order mode: iterator exhausted
+	skip        int                    // in-order mode: discard this many tracks first
 	canceled    bool
 }
 
@@ -117,13 +118,37 @@ func (lp *libraryPlayback) isCanceled() bool {
 	return lp.canceled
 }
 
+// SkipFirst makes in-order mode discard the first n tracks of the iterator
+// before supplying any. Used when the caller has already enqueued the head
+// of the library (e.g. the page's loaded rows on a "play from here" click).
+// Must be called before the first NextBatch; no effect in shuffle mode.
+func (lp *libraryPlayback) SkipFirst(n int) {
+	lp.mutex.Lock()
+	lp.skip = n
+	lp.mutex.Unlock()
+}
+
 func (lp *libraryPlayback) nextInOrderBatch(n int) []*mediaprovider.Track {
 	lp.mutex.Lock()
 	if lp.canceled || lp.iterDone {
 		lp.mutex.Unlock()
 		return nil
 	}
+	toSkip := lp.skip
+	lp.skip = 0
 	lp.mutex.Unlock()
+
+	for range toSkip {
+		if lp.isCanceled() {
+			return nil
+		}
+		if lp.iter.Next() == nil {
+			lp.mutex.Lock()
+			lp.iterDone = true
+			lp.mutex.Unlock()
+			return nil
+		}
+	}
 
 	var batch []*mediaprovider.Track
 	for len(batch) < n {
@@ -198,6 +223,53 @@ func (p *PlaybackManager) PlayAllTracks(shuffle bool) error {
 		// in-order mode, or the random-seed fetch failed/returned nothing
 		batch = lp.NextBatch(p.appCfg.EnqueueBatchSize)
 	}
+	return p.startLibraryContext(batch, lp)
+}
+
+// PlayLibraryTracksFrom starts in-order playback of the library from a
+// clicked track: loadedFromClick (the page's loaded rows from the clicked
+// track onward) plays first, then the continuation resumes with the rest
+// of the library by skipping the totalLoaded tracks the page had loaded.
+func (p *PlaybackManager) PlayLibraryTracksFrom(loadedFromClick []*mediaprovider.Track, totalLoaded int) error {
+	s := p.engine.sm.GetServer()
+	if s == nil {
+		return errors.New("logged out")
+	}
+	p.cancelLibraryPlayback()
+
+	lp := newLibraryPlayback(p.bgCtx, s.IterateTracks(""), false, nil, nil)
+	lp.SkipFirst(totalLoaded)
+	return p.startLibraryContext(loadedFromClick, lp)
+}
+
+// PlayLibraryShuffledFrom plays the clicked track immediately, followed by
+// the rest of the library shuffled (each track once). The first upcoming
+// batch is seeded server-random for an instant, library-wide-uniform start.
+func (p *PlaybackManager) PlayLibraryShuffledFrom(clicked *mediaprovider.Track) error {
+	s := p.engine.sm.GetServer()
+	if s == nil {
+		return errors.New("logged out")
+	}
+	p.cancelLibraryPlayback()
+
+	filter := p.shuffleSkipFilter(true)
+	seed := []*mediaprovider.Track{clicked}
+	if random, err := s.GetRandomTracks("", p.appCfg.EnqueueBatchSize); err != nil {
+		log.Printf("shuffle from track: falling back to pool for first batch: %v", err)
+	} else {
+		for _, t := range sharedutil.FilterSlice(random, filter) {
+			if t.ID != clicked.ID {
+				seed = append(seed, t)
+			}
+		}
+	}
+	lp := newLibraryPlayback(p.bgCtx, s.IterateTracks(""), true, filter, trackIDSet(seed))
+	return p.startLibraryContext(seed, lp)
+}
+
+// startLibraryContext loads the first batch, starts playback, and registers
+// the continuation for progressive refills.
+func (p *PlaybackManager) startLibraryContext(batch []*mediaprovider.Track, lp *libraryPlayback) error {
 	if len(batch) == 0 {
 		lp.Cancel()
 		return errors.New("no tracks found")
