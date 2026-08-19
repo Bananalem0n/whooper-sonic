@@ -193,6 +193,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	if m.popUpQueue == nil {
 		m.popUpQueueList = widgets.NewPlayQueueList(m.App.ImageManager, false)
 		m.popUpQueueList.Reorderable = true
+		m.popUpQueueList.DimPlayedTracks = true
 		m.popUpQueueList.SetItems(m.App.PlaybackManager.GetActivePlayQueue())
 		m.ConnectPlayQueuelistActions(m.popUpQueueList)
 
