@@ -41,14 +41,14 @@ func NewAuxControls(initialVolume int) *AuxControls {
 	a.miniplayer.SetToolTip(lang.L("Miniplayer"))
 
 	// single compact row, Spotify-style:
-	// [queue] [volume icon + slider]   [cast] [miniplayer]
+	// [queue] [volume icon + slider] [cast] [miniplayer]
 	a.container = container.NewHBox(
 		layout.NewSpacer(),
 		container.NewVBox(
 			layout.NewSpacer(),
 			container.New(
 				layout.NewCustomPaddedHBoxLayout(theme.Padding()*2.75),
-				layout.NewSpacer(), a.showQueue, a.VolumeControl, util.NewHSpace(14),
+				layout.NewSpacer(), a.showQueue, a.VolumeControl,
 				a.cast, a.miniplayer, util.NewHSpace(5)),
 			layout.NewSpacer(),
 		),
@@ -146,7 +146,7 @@ func NewVolumeControl(initialVol int) *VolumeControl {
 	v.ExtendBaseWidget(v)
 	v.icon = NewIconButton(theme.VolumeUpIcon(), v.toggleMute)
 	v.icon.SetToolTip(lang.L("Mute"))
-	v.slider = NewVolumeSlider(85)
+	v.slider = NewVolumeSlider(110)
 	v.lastVol = initialVol
 	v.slider.Step = 1
 	v.slider.Orientation = widget.Horizontal
