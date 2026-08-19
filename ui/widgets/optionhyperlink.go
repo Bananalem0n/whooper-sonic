@@ -52,6 +52,12 @@ func (o *OptionHyperlink) SetTextStyle(style fyne.TextStyle) {
 	o.BaseWidget.Refresh()
 }
 
+func (o *OptionHyperlink) SetSizeName(name fyne.ThemeSizeName) {
+	o.h.SizeName = name
+	o.updatePreferredWidth()
+	o.BaseWidget.Refresh()
+}
+
 func (o *OptionHyperlink) SetOnTapped(f func()) {
 	o.h.OnTapped = f
 }
@@ -64,6 +70,7 @@ func (o *OptionHyperlink) updatePreferredWidth() {
 	var h widget.Hyperlink
 	h.Text = o.Text()
 	h.TextStyle = o.h.TextStyle
+	h.SizeName = o.h.SizeName
 	o.layout.preferredWidth = h.MinSize().Width + theme.Padding()
 }
 

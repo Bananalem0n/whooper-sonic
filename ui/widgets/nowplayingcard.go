@@ -63,7 +63,11 @@ func NewNowPlayingCard() *NowPlayingCard {
 	n.albumName.Hidden = true
 	n.albumName.SuffixParenthesized = true
 	n.albumName.SuffixSizeName = myTheme.SizeNameSubText
+	// smaller text throughout; the bold track name keeps the hierarchy
 	n.trackName.SetTextStyle(fyne.TextStyle{Bold: true})
+	n.trackName.SetSizeName(myTheme.SizeNameSubText)
+	n.artistName.SizeName = myTheme.SizeNameSubText
+	n.albumName.SizeName = myTheme.SizeNameSubText
 	// the options menu lives on a standalone button next to the
 	// quick add-to-playlist button, not attached to the track name
 	n.trackName.SetMenuBtnEnabled(false)

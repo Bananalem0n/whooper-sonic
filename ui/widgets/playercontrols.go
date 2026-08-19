@@ -134,10 +134,15 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 	} else {
 		pc.waveform.Hidden = true
 	}
-	pc.curTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 55)
+	// time labels are de-emphasized: smaller and dimmer, just visible
+	pc.curTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 46)
 	pc.curTimeLabel.Alignment = fyne.TextAlignTrailing
-	pc.totalTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 55)
+	pc.curTimeLabel.SizeName = myTheme.SizeNameSubText
+	pc.curTimeLabel.Importance = widget.LowImportance
+	pc.totalTimeLabel = NewLabelMinSize(util.SecondsToMMSS(0), 46)
 	pc.totalTimeLabel.Alignment = fyne.TextAlignTrailing
+	pc.totalTimeLabel.SizeName = myTheme.SizeNameSubText
+	pc.totalTimeLabel.Importance = widget.LowImportance
 
 	pc.slider.OnChanged = func(f float64) {
 		if pc.slider.IsDragging() {
@@ -180,8 +185,10 @@ func NewPlayerControls(useWaveformSeekbar bool, initialLoopMode backend.LoopMode
 		pc.waveform,
 	)
 	c := container.NewBorder(nil, nil, pc.curTimeLabel, pc.totalTimeLabel, seekCtrl)
-	// transport buttons above the seek bar, Spotify-style
-	pc.container = container.New(layout.NewCustomPaddedVBoxLayout(0), buttons, c)
+	// transport buttons above the seek bar, Spotify-style; pushed down
+	// from the top edge, tight to the seek bar, which sits near the bottom
+	pc.container = container.New(&layout.CustomPaddedLayout{TopPadding: 10, BottomPadding: 2},
+		container.New(layout.NewCustomPaddedVBoxLayout(-6), buttons, c))
 
 	return pc
 }

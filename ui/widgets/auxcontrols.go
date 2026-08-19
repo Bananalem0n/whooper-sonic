@@ -38,7 +38,6 @@ func NewAuxControls(initialVolume int, initialAutoplay bool) *AuxControls {
 		showQueue:     NewIconButton(myTheme.PlayQueueIcon, nil),
 	}
 
-	a.cast.IconSize = IconButtonSizeSmaller
 	a.cast.SetToolTip(lang.L("Cast to device"))
 
 	a.autoplay.Highlighted = initialAutoplay
@@ -51,7 +50,6 @@ func NewAuxControls(initialVolume int, initialAutoplay bool) *AuxControls {
 		}
 	}
 
-	a.showQueue.IconSize = IconButtonSizeSmaller
 	a.showQueue.SetToolTip(lang.L("Show play queue"))
 
 	// single compact row, Spotify-style:
@@ -161,7 +159,6 @@ func NewVolumeControl(initialVol int) *VolumeControl {
 	v.ExtendBaseWidget(v)
 	v.icon = NewIconButton(theme.VolumeUpIcon(), v.toggleMute)
 	v.icon.SetToolTip(lang.L("Mute"))
-	v.icon.IconSize = IconButtonSizeSmaller
 	v.slider = NewVolumeSlider(100)
 	v.lastVol = initialVol
 	v.slider.Step = 1
