@@ -38,6 +38,11 @@ type PlayQueueList struct {
 	DisableRating  bool
 	DisableSharing bool
 
+	// DimPlayedTracks renders rows before the now-playing row with
+	// de-emphasized text, visually separating "previously played" from
+	// "up next". Enable only for lists whose order is the play queue.
+	DimPlayedTracks bool
+
 	// user action callbacks
 	OnPlayItemAt        func(idx int)
 	OnPlaySelection     func(items []mediaprovider.MediaItem, shuffle bool)
@@ -58,7 +63,8 @@ type PlayQueueList struct {
 	menu            *util.TrackContextMenu // ctx menu for when only tracks are selected
 	radiosMenu      *widget.PopUpMenu      // ctx menu for when selection contains radios
 
-	nowPlayingID string
+	nowPlayingID  string
+	nowPlayingIdx int // -1 if now playing is not in this list
 
 	list        *FocusList
 	colLayout   *layouts.ColumnsLayout
@@ -67,7 +73,7 @@ type PlayQueueList struct {
 }
 
 func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueueList {
-	p := &PlayQueueList{useNonQueueMenu: useNonQueueMenu}
+	p := &PlayQueueList{useNonQueueMenu: useNonQueueMenu, nowPlayingIdx: -1}
 	p.ExtendBaseWidget(p)
 
 	// #, Cover, Title/Artist, Time
@@ -125,6 +131,7 @@ func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
 	p.tracksMutex.Lock()
 	p.items = util.ToTrackListModels(trs)
 	p.tracksMutex.Unlock()
+	p.recomputeNowPlayingIdx()
 	p.Refresh()
 }
 
@@ -134,7 +141,20 @@ func (p *PlayQueueList) SetItems(items []mediaprovider.MediaItem) {
 		return &util.TrackListModel{Item: item}
 	})
 	p.tracksMutex.Unlock()
+	p.recomputeNowPlayingIdx()
 	p.Refresh()
+}
+
+// the now playing index must track item replacements so the
+// played/up-next dim boundary stays correct
+func (p *PlayQueueList) recomputeNowPlayingIdx() {
+	p.tracksMutex.RLock()
+	tr, idx := util.FindItemByID(p.items, p.nowPlayingID)
+	p.tracksMutex.RUnlock()
+	if tr == nil {
+		idx = -1
+	}
+	p.nowPlayingIdx = idx
 }
 
 func (p *PlayQueueList) Items() []mediaprovider.MediaItem {
@@ -151,6 +171,17 @@ func (p *PlayQueueList) SetNowPlaying(itemID string) {
 	tr, idx := util.FindItemByID(p.items, itemID)
 	p.tracksMutex.RUnlock()
 	p.nowPlayingID = itemID
+	if tr == nil {
+		idx = -1
+	}
+	idxChanged := p.nowPlayingIdx != idx
+	p.nowPlayingIdx = idx
+	if p.DimPlayedTracks && idxChanged {
+		// the played/up-next boundary moved: every row on the wrong
+		// side of it needs re-rendering, not just the two playing rows
+		p.list.Refresh()
+		return
+	}
 	if trPrev != nil {
 		p.list.RefreshItem(idxPrev)
 	}
@@ -367,6 +398,7 @@ type PlayQueueListRow struct {
 	playQueueList *PlayQueueList
 	trackID       string
 	isPlaying     bool
+	isDimmed      bool
 
 	playingIcon fyne.CanvasObject
 	num         *widget.Label
@@ -465,6 +497,21 @@ func (p *PlayQueueListRow) Update(tm *util.TrackListModel, rowNum int) {
 		} else {
 			p.Content.(*fyne.Container).Objects[0] = container.NewCenter(p.num)
 		}
+	}
+
+	// De-emphasize previously played rows (those above the now playing
+	// row) to visually separate them from the up-next portion of the queue
+	npIdx := p.playQueueList.nowPlayingIdx
+	if dim := p.playQueueList.DimPlayedTracks && npIdx >= 0 &&
+		p.ListItemID < npIdx; dim != p.isDimmed {
+		p.isDimmed = dim
+		importance := widget.MediumImportance
+		if dim {
+			importance = widget.LowImportance
+		}
+		p.num.Importance = importance
+		p.title.Importance = importance
+		p.time.Importance = importance
 	}
 
 	// we always need to refresh in case of light/dark change

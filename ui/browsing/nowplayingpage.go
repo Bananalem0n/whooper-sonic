@@ -135,6 +135,7 @@ func NewNowPlayingPage(
 	a.queueList = widgets.NewPlayQueueList(a.im, false)
 	a.relatedList = widgets.NewPlayQueueList(a.im, true)
 	a.queueList.Reorderable = true
+	a.queueList.DimPlayedTracks = true
 
 	a.contr.ConnectPlayQueuelistActions(a.queueList)
 	// override OnSetRating and Favorite so we can also update the

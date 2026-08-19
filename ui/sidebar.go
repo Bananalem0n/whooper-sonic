@@ -35,6 +35,7 @@ func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *b
 		queueList: widgets.NewPlayQueueList(im, false),
 	}
 	s.queueList.Reorderable = true
+	s.queueList.DimPlayedTracks = true
 	contr.ConnectPlayQueuelistActions(s.queueList)
 
 	s.lyricsViewer = widgets.NewLyricsViewer(func(i int) {
