@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
+	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -31,6 +32,8 @@ type TracksPage struct {
 	loader          *widgets.TracklistLoader
 	searchTracklist *widgets.Tracklist
 	searchLoader    *widgets.TracklistLoader
+	playAll         *widget.Button
+	shuffleAll      *widget.Button
 	playRandom      *widget.Button
 	container       *fyne.Container
 }
@@ -70,6 +73,8 @@ func NewTracksPage(contr *controller.Controller, conf *backend.TracksPageConfig,
 
 	t.title = widget.NewRichTextWithText(lang.L("All Tracks"))
 	t.title.Segments[0].(*widget.TextSegment).Style.SizeName = widget.RichTextStyleHeading.SizeName
+	t.playAll = widget.NewButtonWithIcon(lang.L("Play all"), fynetheme.MediaPlayIcon(), t.playAllTracks)
+	t.shuffleAll = widget.NewButtonWithIcon(lang.L("Shuffle all"), theme.ShuffleIcon, t.shuffleAllTracks)
 	t.playRandom = widget.NewButtonWithIcon(lang.L("Play random"), theme.ShuffleIcon, t.playRandomSongs)
 	t.searcher = widgets.NewSearchEntry()
 	t.searcher.PlaceHolder = lang.L("Search page")
@@ -80,9 +85,9 @@ func NewTracksPage(contr *controller.Controller, conf *backend.TracksPageConfig,
 }
 
 func (t *TracksPage) createContainer() {
-	playRandomVbox := container.NewVBox(layout.NewSpacer(), t.playRandom, layout.NewSpacer())
+	buttonsVbox := container.NewVBox(layout.NewSpacer(), container.NewHBox(t.playAll, t.shuffleAll, t.playRandom), layout.NewSpacer())
 	searchVbox := container.NewVBox(layout.NewSpacer(), t.searcher, layout.NewSpacer())
-	topRow := container.NewHBox(t.title, playRandomVbox, layout.NewSpacer(), searchVbox)
+	topRow := container.NewHBox(t.title, buttonsVbox, layout.NewSpacer(), searchVbox)
 	t.container = container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, TopPadding: 5, BottomPadding: 15},
 		container.NewBorder(topRow, nil, nil, nil, t.tracklist))
 }
@@ -213,6 +218,26 @@ func (t *TracksPage) playRandomSongs() {
 			log.Printf("error playing random tracks: %v", err)
 			fyne.Do(func() {
 				t.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play random tracks"))
+			})
+		}
+	}()
+}
+
+func (t *TracksPage) playAllTracks() {
+	t.doPlayAllTracks(false)
+}
+
+func (t *TracksPage) shuffleAllTracks() {
+	t.doPlayAllTracks(true)
+}
+
+func (t *TracksPage) doPlayAllTracks(shuffle bool) {
+	go func() {
+		err := t.contr.App.PlaybackManager.PlayAllTracks(shuffle)
+		if err != nil {
+			log.Printf("error playing all tracks: %v", err)
+			fyne.Do(func() {
+				t.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play tracks"))
 			})
 		}
 	}()
