@@ -111,6 +111,11 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.BottomPanel = NewBottomPanel(app.PlaybackManager, app.ImageManager, m.Controller, app.Config)
 	m.miniPlayer = NewMiniPlayer(fyneApp, app.PlaybackManager, app.ImageManager)
 	m.miniPlayer.OnVisibilityChanged = m.BottomPanel.AuxControls.SetMiniplayerHighlighted
+	m.miniPlayer.OnAddToPlaylist = func() {
+		if tr, ok := app.PlaybackManager.NowPlaying().(*mediaprovider.Track); ok {
+			m.Controller.DoAddTracksToPlaylistWorkflow([]string{tr.ID})
+		}
+	}
 	m.BottomPanel.AuxControls.OnShowMiniplayer(m.miniPlayer.Toggle)
 	app.PlaybackManager.OnSongChange(func(item mediaprovider.MediaItem, _ *mediaprovider.Track) {
 		fyne.Do(func() { m.UpdateOnTrackChange(item) })

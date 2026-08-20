@@ -29,6 +29,8 @@ type MiniPlayer struct {
 	// OnVisibilityChanged is invoked with true when the window is
 	// shown and false when it is hidden.
 	OnVisibilityChanged func(bool)
+	// OnAddToPlaylist is invoked when the add-to-playlist button is tapped.
+	OnAddToPlaylist func()
 
 	fyneApp fyne.App
 	pm      *backend.PlaybackManager
@@ -40,11 +42,19 @@ type MiniPlayer struct {
 	imageLoader util.ThumbnailLoader
 	totalTime   float64
 
+	// layout state, updated by miniPlayerRenderer
+	cardMode    bool
+	coverPos    fyne.Position
+	coverSize   fyne.Size
+	hoverCtrls  bool // transport shown due to hover (card mode)
+
 	// widgets, positioned manually by miniPlayerRenderer
 	bg        *canvas.Rectangle
 	cover     *widgets.ImagePlaceholder
+	scrim     *canvas.Rectangle // dims the cover behind hover controls
 	title     *widget.Label
 	artist    *widget.Label
+	addBtn    *widgets.IconButton
 	prev      *widgets.IconButton
 	playpause *widgets.IconButton
 	next      *widgets.IconButton
@@ -61,6 +71,18 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 
 	m.cover = widgets.NewImagePlaceholder(myTheme.TracksIcon, 48)
 	m.cover.ScaleMode = canvas.ImageScaleFastest
+
+	m.scrim = canvas.NewRectangle(color.Transparent)
+	m.scrim.CornerRadius = 12
+	m.scrim.Hidden = true
+
+	m.addBtn = widgets.NewIconButton(fynetheme.ContentAddIcon(), func() {
+		if m.OnAddToPlaylist != nil {
+			m.OnAddToPlaylist()
+		}
+	})
+	m.addBtn.SetToolTip(lang.L("Add to playlist"))
+	m.addBtn.Disable()
 
 	m.title = widget.NewLabel("")
 	m.title.TextStyle = fyne.TextStyle{Bold: true}
@@ -169,10 +191,44 @@ func (m *MiniPlayer) onSongChange(item mediaprovider.MediaItem) {
 	m.title.SetText(meta.Name)
 	if tr, ok := item.(*mediaprovider.Track); ok {
 		m.artist.SetText(strings.Join(tr.ArtistNames, ", "))
+		m.addBtn.Enable()
 	} else {
 		m.artist.SetText("")
+		m.addBtn.Disable()
 	}
 	m.imageLoader.Load(meta.CoverArtID)
+}
+
+// setHoverControls shows or hides the transport controls overlaid on
+// the cover in card mode. In bar mode the controls are always shown.
+func (m *MiniPlayer) setHoverControls(show bool) {
+	if m.hoverCtrls == show {
+		return
+	}
+	m.hoverCtrls = show
+	m.applyControlVisibility()
+	m.prev.Refresh()
+	m.playpause.Refresh()
+	m.next.Refresh()
+	m.scrim.Refresh()
+}
+
+func (m *MiniPlayer) applyControlVisibility() {
+	showCtrls := !m.cardMode || m.hoverCtrls
+	m.prev.Hidden = !showCtrls
+	m.playpause.Hidden = !showCtrls
+	m.next.Hidden = !showCtrls
+	showScrim := m.cardMode && m.hoverCtrls
+	if showScrim {
+		// dim the artwork toward the theme background so the
+		// foreground-colored buttons stay legible on any cover
+		th := fyne.CurrentApp().Settings().Theme()
+		v := fyne.CurrentApp().Settings().ThemeVariant()
+		bg := th.Color(fynetheme.ColorNameBackground, v)
+		cr, cg, cb, _ := bg.RGBA()
+		m.scrim.FillColor = color.NRGBA{R: uint8(cr >> 8), G: uint8(cg >> 8), B: uint8(cb >> 8), A: 170}
+	}
+	m.scrim.Hidden = !showScrim
 }
 
 func (m *MiniPlayer) onImageLoaded(img image.Image) {
@@ -222,6 +278,8 @@ func (m *MiniPlayer) setPlaying(playing bool) {
 
 // miniPlayerContent is the responsive root widget of the miniplayer
 // window: a tall aspect shows the card layout, a wide one the bar layout.
+// It tracks the mouse to reveal the transport controls when hovering
+// over the cover in card mode.
 type miniPlayerContent struct {
 	widget.BaseWidget
 	mp *MiniPlayer
@@ -237,14 +295,35 @@ func (c *miniPlayerContent) CreateRenderer() fyne.WidgetRenderer {
 	return &miniPlayerRenderer{mp: c.mp}
 }
 
+var _ desktop.Hoverable = (*miniPlayerContent)(nil)
+
+func (c *miniPlayerContent) MouseIn(e *desktop.MouseEvent) {
+	c.MouseMoved(e)
+}
+
+func (c *miniPlayerContent) MouseMoved(e *desktop.MouseEvent) {
+	m := c.mp
+	if !m.cardMode {
+		return
+	}
+	in := e.Position.X >= m.coverPos.X && e.Position.X <= m.coverPos.X+m.coverSize.Width &&
+		e.Position.Y >= m.coverPos.Y && e.Position.Y <= m.coverPos.Y+m.coverSize.Height
+	m.setHoverControls(in)
+}
+
+func (c *miniPlayerContent) MouseOut() {
+	c.mp.setHoverControls(false)
+}
+
 type miniPlayerRenderer struct {
 	mp *MiniPlayer
 }
 
 func (r *miniPlayerRenderer) Objects() []fyne.CanvasObject {
 	m := r.mp
-	return []fyne.CanvasObject{m.bg, m.cover, m.title, m.artist,
-		m.prev, m.playpause, m.next, m.curTime, m.seekbar, m.totalLbl}
+	return []fyne.CanvasObject{m.bg, m.cover, m.scrim,
+		m.prev, m.playpause, m.next,
+		m.title, m.artist, m.addBtn, m.curTime, m.seekbar, m.totalLbl}
 }
 
 func (r *miniPlayerRenderer) MinSize() fyne.Size {
@@ -260,57 +339,93 @@ func (r *miniPlayerRenderer) Refresh() {
 }
 
 func (r *miniPlayerRenderer) Layout(size fyne.Size) {
-	if size.Height >= size.Width*0.9 {
+	m := r.mp
+	// square-ish and portrait windows use the card layout;
+	// only clearly wide windows use the bar
+	cardMode := size.Height >= size.Width*0.75
+	if cardMode != m.cardMode {
+		m.cardMode = cardMode
+		if !cardMode {
+			m.hoverCtrls = false
+		}
+		m.applyControlVisibility()
+	}
+	if cardMode {
 		r.layoutCard(size)
 	} else {
 		r.layoutBar(size)
 	}
 }
 
-// layoutCard: large tinted cover card on top, then title, artist,
-// transport row, and the seek row at the bottom.
+// layoutCard: cover nearly filling the window with small margins,
+// transport controls overlaid on hover, a slim seek line below,
+// then title/artist with the add-to-playlist button on the right.
 func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m := r.mp
-	pad := float32(10)
+	pad := float32(8)
 
-	seekRowH := float32(28)
-	ctrlH := m.playpause.MinSize().Height
 	titleH := m.title.MinSize().Height
 	artistH := m.artist.MinSize().Height
+	textH := titleH + artistH - 14
+	textY := size.Height - textH - 2
 
-	seekY := size.Height - seekRowH - 2
-	ctrlY := seekY - ctrlH + 2
-	artistY := ctrlY - artistH + 8
-	titleY := artistY - titleH + 12
+	seekH := float32(18)
+	seekY := textY - seekH + 4
 
-	// tinted card with the cover centered inside
-	bgH := titleY - pad
+	// cover card: everything above the seek line, small margins
+	regW := size.Width - 2*pad
+	regH := seekY - 2 - pad
+	if regH < 0 {
+		regH = 0
+	}
 	m.bg.Move(fyne.NewPos(pad, pad))
-	m.bg.Resize(fyne.NewSize(size.Width-2*pad, bgH-pad))
-	coverSize := fyne.Min(bgH-3*pad, size.Width-4*pad)
+	m.bg.Resize(fyne.NewSize(regW, regH))
+	coverSize := fyne.Min(regW, regH) - 8
 	if coverSize < 0 {
 		coverSize = 0
 	}
-	m.cover.Move(fyne.NewPos((size.Width-coverSize)/2, pad+(bgH-pad-coverSize)/2))
+	m.cover.Move(fyne.NewPos(pad+(regW-coverSize)/2, pad+(regH-coverSize)/2))
 	m.cover.Resize(fyne.NewSize(coverSize, coverSize))
+	// hover region and scrim cover the whole card
+	m.coverPos = fyne.NewPos(pad, pad)
+	m.coverSize = fyne.NewSize(regW, regH)
+	m.scrim.Move(m.coverPos)
+	m.scrim.Resize(m.coverSize)
 
-	m.title.Move(fyne.NewPos(pad-4, titleY))
-	m.title.Resize(fyne.NewSize(size.Width-2*pad+8, titleH))
-	m.artist.Move(fyne.NewPos(pad-4, artistY))
-	m.artist.Resize(fyne.NewSize(size.Width-2*pad+8, artistH))
-
-	// transport centered
+	// transport overlay centered on the cover
+	ctrlH := m.playpause.MinSize().Height
 	bw := m.prev.MinSize().Width + m.playpause.MinSize().Width + m.next.MinSize().Width + 16
-	x := (size.Width - bw) / 2
-	r.placeTransport(x, ctrlY, ctrlH)
+	r.placeTransport((size.Width-bw)/2, pad+(regH-ctrlH)/2, ctrlH)
 
-	r.placeSeekRow(pad, seekY, size.Width-2*pad, seekRowH)
+	// slim seek line, full width; time labels are hidden in card mode
+	m.curTime.Hide()
+	m.totalLbl.Hide()
+	m.seekbar.Move(fyne.NewPos(pad+2, seekY))
+	m.seekbar.Resize(fyne.NewSize(size.Width-2*pad-4, seekH))
+
+	// title/artist left, add-to-playlist right
+	m.addBtn.Show()
+	addSz := m.addBtn.MinSize()
+	textW := size.Width - 2*pad - addSz.Width - 10
+	m.title.Move(fyne.NewPos(pad-4, textY))
+	m.title.Resize(fyne.NewSize(textW+4, titleH))
+	m.artist.Move(fyne.NewPos(pad-4, textY+titleH-14))
+	m.artist.Resize(fyne.NewSize(textW+4, artistH))
+	m.addBtn.Move(fyne.NewPos(size.Width-pad-addSz.Width, textY+(textH-addSz.Height)/2))
+	m.addBtn.Resize(addSz)
 }
 
 // layoutBar: cover on the left, text and controls to the right.
 func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	m := r.mp
 	pad := float32(8)
+
+	// bar mode has no hover overlay or add button, and shows the times
+	m.curTime.Show()
+	m.totalLbl.Show()
+	m.addBtn.Hide()
+	m.scrim.Move(fyne.NewPos(0, 0))
+	m.scrim.Resize(fyne.NewSize(0, 0))
 
 	coverSize := size.Height - 2*pad
 	m.bg.Move(fyne.NewPos(pad, pad))
