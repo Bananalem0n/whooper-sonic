@@ -175,6 +175,15 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 	return m
 }
 
+// Canvas returns the miniplayer window's canvas, or nil if the window
+// has not been created yet.
+func (m *MiniPlayer) Canvas() fyne.Canvas {
+	if m.window == nil {
+		return nil
+	}
+	return m.window.Canvas()
+}
+
 // Toggle shows the miniplayer window, creating it on first use,
 // or hides it if currently shown.
 func (m *MiniPlayer) Toggle() {

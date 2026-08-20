@@ -113,7 +113,10 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.miniPlayer.OnVisibilityChanged = m.BottomPanel.AuxControls.SetMiniplayerHighlighted
 	m.miniPlayer.OnAddToPlaylist = func() {
 		if tr, ok := app.PlaybackManager.NowPlaying().(*mediaprovider.Track); ok {
-			m.Controller.DoAddTracksToPlaylistWorkflow([]string{tr.ID})
+			if cv := m.miniPlayer.Canvas(); cv != nil {
+				// show the dialog inside the miniplayer window
+				m.Controller.DoAddTracksToPlaylistWorkflowOnCanvas([]string{tr.ID}, cv)
+			}
 		}
 	}
 	m.BottomPanel.AuxControls.OnShowMiniplayer(m.miniPlayer.Toggle)
