@@ -22,6 +22,9 @@ type ImagePlaceholder struct {
 	// image corner radius size
 	CornerRadiusOverride float32
 
+	fillMode    canvas.ImageFill
+	fillModeSet bool
+
 	widget.BaseWidget
 	content   *fyne.Container
 	imageDisp *TappableImage
@@ -106,6 +109,14 @@ func (i *ImagePlaceholder) MinSize() fyne.Size {
 	return i.minSize
 }
 
+// SetImageFillMode overrides the default ImageFillContain display mode
+// (e.g. ImageFillStretch to fill the widget bounds entirely).
+func (i *ImagePlaceholder) SetImageFillMode(mode canvas.ImageFill) {
+	i.fillMode = mode
+	i.fillModeSet = true
+	i.Refresh()
+}
+
 func (i *ImagePlaceholder) Refresh() {
 	i.border.Hidden = i.HaveImage()
 	i.iconImage.Resource = i.PlaceholderIcon
@@ -119,6 +130,9 @@ func (i *ImagePlaceholder) Refresh() {
 		i.imageDisp.CornerRadius = i.Theme().Size(myTheme.SizeNameImageCornerRadius)
 	}
 	i.border.CornerRadius = i.imageDisp.CornerRadius
+	if i.fillModeSet {
+		i.imageDisp.FillMode = i.fillMode
+	}
 	i.BaseWidget.Refresh()
 }
 

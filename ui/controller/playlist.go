@@ -9,10 +9,12 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/sharedutil"
 	"github.com/supersonic-app/supersonic/ui/dialogs"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 	"github.com/supersonic-app/supersonic/ui/util"
 )
 
@@ -32,7 +34,10 @@ func (m *Controller) DoAddTracksToPlaylistWorkflowOnCanvas(trackIDs []string, cv
 func (m *Controller) doAddTracksToPlaylistWorkflow(trackIDs []string, cv fyne.Canvas) {
 	sp := dialogs.NewSelectPlaylistDialog(m.App.ServerManager.Server, m.App.ImageManager,
 		m.App.ServerManager.LoggedInUser, m.App.Config.Application.AddToPlaylistSkipDuplicates)
-	pop := widget.NewModalPopUp(container.NewPadded(sp.SearchDialog), cv)
+	// rounder buttons (e.g. Cancel) within this dialog only
+	content := container.NewThemeOverride(container.NewPadded(sp.SearchDialog),
+		myTheme.WithSizeOverride(theme.SizeNameInputRadius, 12))
+	pop := widget.NewModalPopUp(content, cv)
 	sp.SetOnDismiss(func() {
 		pop.Hide()
 		m.doModalClosed()

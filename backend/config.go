@@ -215,6 +215,7 @@ func DefaultConfig(appVersionTag string) *Config {
 			UIScaleSize:                        "Normal",
 			SavePlayQueue:                      true,
 			SaveQueueToServer:                  false,
+			AddToPlaylistSkipDuplicates:        true,
 			ShowTrackChangeNotification:        false,
 			EnableLrcLib:                       true,
 			EnablePasswordStorage:              true,

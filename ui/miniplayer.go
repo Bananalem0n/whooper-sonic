@@ -7,6 +7,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/lang"
 	fynetheme "fyne.io/fyne/v2/theme"
@@ -72,19 +73,41 @@ type tapIcon struct {
 	widget.BaseWidget
 	onTapped func()
 	icon     *widget.Icon
+	bg       *canvas.Rectangle
 	size     fyne.Size
+	hovered  bool
 }
 
 var _ fyne.Tappable = (*tapIcon)(nil)
 
 func newTapIcon(res fyne.Resource, size float32, onTapped func()) *tapIcon {
 	t := &tapIcon{onTapped: onTapped, icon: widget.NewIcon(res), size: fyne.NewSquareSize(size)}
+	t.bg = canvas.NewRectangle(color.Transparent)
+	t.bg.CornerRadius = size / 2
 	t.ExtendBaseWidget(t)
 	return t
 }
 
 func (t *tapIcon) SetResource(res fyne.Resource) {
 	t.icon.SetResource(res)
+}
+
+// SetHovered applies the theme hover color behind the icon. Hover
+// tracking is done by the miniplayer root widget, since making this
+// widget Hoverable would steal events from it (see type comment).
+func (t *tapIcon) SetHovered(hovered bool) {
+	if t.hovered == hovered {
+		return
+	}
+	t.hovered = hovered
+	if hovered {
+		th := fyne.CurrentApp().Settings().Theme()
+		v := fyne.CurrentApp().Settings().ThemeVariant()
+		t.bg.FillColor = th.Color(fynetheme.ColorNameHover, v)
+	} else {
+		t.bg.FillColor = color.Transparent
+	}
+	t.bg.Refresh()
 }
 
 func (t *tapIcon) MinSize() fyne.Size {
@@ -98,7 +121,7 @@ func (t *tapIcon) Tapped(*fyne.PointEvent) {
 }
 
 func (t *tapIcon) CreateRenderer() fyne.WidgetRenderer {
-	return widget.NewSimpleRenderer(t.icon)
+	return widget.NewSimpleRenderer(container.NewStack(t.bg, t.icon))
 }
 
 func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.ImageManager) *MiniPlayer {
@@ -110,6 +133,8 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 	m.cover = widgets.NewImagePlaceholder(myTheme.TracksIcon, 48)
 	m.cover.ScaleMode = canvas.ImageScaleFastest
 	m.cover.CornerRadiusOverride = 8
+	// stretch the art to fill its square rather than letterboxing
+	m.cover.SetImageFillMode(canvas.ImageFillStretch)
 
 	m.scrim = canvas.NewRectangle(color.Transparent)
 	m.scrim.CornerRadius = 12
@@ -346,16 +371,30 @@ func (c *miniPlayerContent) MouseIn(e *desktop.MouseEvent) {
 
 func (c *miniPlayerContent) MouseMoved(e *desktop.MouseEvent) {
 	m := c.mp
-	if !m.cardMode {
-		return
+	if m.cardMode {
+		in := e.Position.X >= m.coverPos.X && e.Position.X <= m.coverPos.X+m.coverSize.Width &&
+			e.Position.Y >= m.coverPos.Y && e.Position.Y <= m.coverPos.Y+m.coverSize.Height
+		m.setHoverControls(in)
 	}
-	in := e.Position.X >= m.coverPos.X && e.Position.X <= m.coverPos.X+m.coverSize.Width &&
-		e.Position.Y >= m.coverPos.Y && e.Position.Y <= m.coverPos.Y+m.coverSize.Height
-	m.setHoverControls(in)
+	// per-icon hover highlight, tracked here since the icons themselves
+	// are deliberately not Hoverable
+	for _, t := range []*tapIcon{m.prev, m.playpause, m.next} {
+		if t.Hidden {
+			t.SetHovered(false)
+			continue
+		}
+		pos, sz := t.Position(), t.Size()
+		t.SetHovered(e.Position.X >= pos.X && e.Position.X <= pos.X+sz.Width &&
+			e.Position.Y >= pos.Y && e.Position.Y <= pos.Y+sz.Height)
+	}
 }
 
 func (c *miniPlayerContent) MouseOut() {
-	c.mp.setHoverControls(false)
+	m := c.mp
+	m.setHoverControls(false)
+	m.prev.SetHovered(false)
+	m.playpause.SetHovered(false)
+	m.next.SetHovered(false)
 }
 
 type miniPlayerRenderer struct {
@@ -424,7 +463,7 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m.bg.Move(fyne.NewPos(pad, pad))
 	m.bg.Resize(fyne.NewSize(regW, regH))
 	// generous inset so the tinted card reads as a border around the art
-	coverSize := fyne.Min(regW, regH) - 28
+	coverSize := fyne.Min(regW, regH)
 	if coverSize < 0 {
 		coverSize = 0
 	}
