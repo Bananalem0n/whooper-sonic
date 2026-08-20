@@ -55,12 +55,50 @@ type MiniPlayer struct {
 	title     *widget.Label
 	artist    *widget.Label
 	addBtn    *widgets.IconButton
-	prev      *widgets.IconButton
-	playpause *widgets.IconButton
-	next      *widgets.IconButton
+	prev      *tapIcon
+	playpause *tapIcon
+	next      *tapIcon
 	seekbar   *widgets.FlatSeekbar
 	curTime   *widget.Label
 	totalLbl  *widget.Label
+}
+
+// tapIcon is a minimal tappable icon. Unlike IconButton it is
+// deliberately NOT desktop.Hoverable: hoverable children steal
+// mouse-over events from the miniplayer's root widget, which made the
+// hover-revealed transport controls flicker (show -> child hover ->
+// root MouseOut -> hide -> repeat).
+type tapIcon struct {
+	widget.BaseWidget
+	onTapped func()
+	icon     *widget.Icon
+	size     fyne.Size
+}
+
+var _ fyne.Tappable = (*tapIcon)(nil)
+
+func newTapIcon(res fyne.Resource, size float32, onTapped func()) *tapIcon {
+	t := &tapIcon{onTapped: onTapped, icon: widget.NewIcon(res), size: fyne.NewSquareSize(size)}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *tapIcon) SetResource(res fyne.Resource) {
+	t.icon.SetResource(res)
+}
+
+func (t *tapIcon) MinSize() fyne.Size {
+	return t.size
+}
+
+func (t *tapIcon) Tapped(*fyne.PointEvent) {
+	if t.onTapped != nil {
+		t.onTapped()
+	}
+}
+
+func (t *tapIcon) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(t.icon)
 }
 
 func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.ImageManager) *MiniPlayer {
@@ -71,6 +109,7 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 
 	m.cover = widgets.NewImagePlaceholder(myTheme.TracksIcon, 48)
 	m.cover.ScaleMode = canvas.ImageScaleFastest
+	m.cover.CornerRadiusOverride = 8
 
 	m.scrim = canvas.NewRectangle(color.Transparent)
 	m.scrim.CornerRadius = 12
@@ -86,18 +125,15 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 
 	m.title = widget.NewLabel("")
 	m.title.TextStyle = fyne.TextStyle{Bold: true}
+	m.title.SizeName = fynetheme.SizeNameSubHeadingText
 	m.title.Truncation = fyne.TextTruncateEllipsis
 	m.artist = widget.NewLabel("")
 	m.artist.SizeName = myTheme.SizeNameSubText
 	m.artist.Truncation = fyne.TextTruncateEllipsis
 
-	m.prev = widgets.NewIconButton(fynetheme.MediaSkipPreviousIcon(), func() { pm.SeekBackOrPrevious() })
-	m.prev.SetToolTip(lang.L("Previous"))
-	m.playpause = widgets.NewIconButton(fynetheme.MediaPlayIcon(), func() { pm.PlayPause() })
-	m.playpause.IconSize = widgets.IconButtonSizeBigger
-	m.playpause.SetToolTip(lang.L("Play"))
-	m.next = widgets.NewIconButton(fynetheme.MediaSkipNextIcon(), func() { pm.SeekNext() })
-	m.next.SetToolTip(lang.L("Next"))
+	m.prev = newTapIcon(fynetheme.MediaSkipPreviousIcon(), 30, func() { pm.SeekBackOrPrevious() })
+	m.playpause = newTapIcon(fynetheme.MediaPlayIcon(), 42, func() { pm.PlayPause() })
+	m.next = newTapIcon(fynetheme.MediaSkipNextIcon(), 30, func() { pm.SeekNext() })
 
 	m.seekbar = widgets.NewFlatSeekbar()
 	m.seekbar.Disable()
@@ -268,11 +304,9 @@ func (m *MiniPlayer) updatePlayTime(cur, total float64) {
 
 func (m *MiniPlayer) setPlaying(playing bool) {
 	if playing {
-		m.playpause.SetIcon(fynetheme.MediaPauseIcon())
-		m.playpause.SetToolTip(lang.L("Pause"))
+		m.playpause.SetResource(fynetheme.MediaPauseIcon())
 	} else {
-		m.playpause.SetIcon(fynetheme.MediaPlayIcon())
-		m.playpause.SetToolTip(lang.L("Play"))
+		m.playpause.SetResource(fynetheme.MediaPlayIcon())
 	}
 }
 
@@ -362,7 +396,7 @@ func (r *miniPlayerRenderer) Layout(size fyne.Size) {
 // then title/artist with the add-to-playlist button on the right.
 func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m := r.mp
-	pad := float32(8)
+	pad := float32(5) // slim margin between the card and window edges
 
 	titleH := m.title.MinSize().Height
 	artistH := m.artist.MinSize().Height
@@ -380,7 +414,8 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	}
 	m.bg.Move(fyne.NewPos(pad, pad))
 	m.bg.Resize(fyne.NewSize(regW, regH))
-	coverSize := fyne.Min(regW, regH) - 8
+	// generous inset so the tinted card reads as a border around the art
+	coverSize := fyne.Min(regW, regH) - 28
 	if coverSize < 0 {
 		coverSize = 0
 	}

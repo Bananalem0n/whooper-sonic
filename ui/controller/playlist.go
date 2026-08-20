@@ -20,9 +20,19 @@ import (
 // Depending on the results of that dialog, potentially create a new playlist
 // Add tracks to the user-specified playlist
 func (m *Controller) DoAddTracksToPlaylistWorkflow(trackIDs []string) {
+	m.doAddTracksToPlaylistWorkflow(trackIDs, m.MainWindow.Canvas())
+}
+
+// DoAddTracksToPlaylistWorkflowOnCanvas shows the add-to-playlist dialog on
+// the given canvas (e.g. the miniplayer window) instead of the main window.
+func (m *Controller) DoAddTracksToPlaylistWorkflowOnCanvas(trackIDs []string, cv fyne.Canvas) {
+	m.doAddTracksToPlaylistWorkflow(trackIDs, cv)
+}
+
+func (m *Controller) doAddTracksToPlaylistWorkflow(trackIDs []string, cv fyne.Canvas) {
 	sp := dialogs.NewSelectPlaylistDialog(m.App.ServerManager.Server, m.App.ImageManager,
 		m.App.ServerManager.LoggedInUser, m.App.Config.Application.AddToPlaylistSkipDuplicates)
-	pop := widget.NewModalPopUp(container.NewPadded(sp.SearchDialog), m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(sp.SearchDialog), cv)
 	sp.SetOnDismiss(func() {
 		pop.Hide()
 		m.doModalClosed()
@@ -93,11 +103,11 @@ func (m *Controller) DoAddTracksToPlaylistWorkflow(trackIDs []string) {
 	m.ClosePopUpOnEscape(pop)
 	m.haveModal = true
 	min := sp.MinSize()
-	height := fyne.Max(min.Height, fyne.Min(min.Height*1.5, m.MainWindow.Canvas().Size().Height*0.7))
+	height := fyne.Max(min.Height, fyne.Min(min.Height*1.5, cv.Size().Height*0.7))
 	sp.SearchDialog.Show()
 	pop.Resize(fyne.NewSize(min.Width, height))
 	pop.Show()
-	m.MainWindow.Canvas().Focus(sp.GetSearchEntry())
+	cv.Focus(sp.GetSearchEntry())
 }
 
 func (m *Controller) DoEditPlaylistWorkflow(playlist *mediaprovider.Playlist) {

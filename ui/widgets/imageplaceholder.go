@@ -18,6 +18,9 @@ import (
 type ImagePlaceholder struct {
 	ScaleMode       canvas.ImageScale
 	PlaceholderIcon fyne.Resource
+	// CornerRadiusOverride, if > 0, is used instead of the theme's
+	// image corner radius size
+	CornerRadiusOverride float32
 
 	widget.BaseWidget
 	content   *fyne.Container
@@ -110,7 +113,11 @@ func (i *ImagePlaceholder) Refresh() {
 	i.imageDisp.Hidden = !i.HaveImage()
 	i.imageDisp.ScaleMode = i.ScaleMode
 	i.iconImage.ScaleMode = i.ScaleMode
-	i.imageDisp.CornerRadius = i.Theme().Size(myTheme.SizeNameImageCornerRadius)
+	if i.CornerRadiusOverride > 0 {
+		i.imageDisp.CornerRadius = i.CornerRadiusOverride
+	} else {
+		i.imageDisp.CornerRadius = i.Theme().Size(myTheme.SizeNameImageCornerRadius)
+	}
 	i.border.CornerRadius = i.imageDisp.CornerRadius
 	i.BaseWidget.Refresh()
 }
