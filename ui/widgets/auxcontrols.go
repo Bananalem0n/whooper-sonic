@@ -57,9 +57,17 @@ func NewAuxControls(initialVolume int) *AuxControls {
 }
 
 // OnShowMiniplayer sets the callback for the miniplayer button.
-// The always-on-top miniplayer itself is not implemented yet.
 func (a *AuxControls) OnShowMiniplayer(f func()) {
 	a.miniplayer.OnTapped = f
+}
+
+// SetMiniplayerHighlighted highlights the miniplayer button
+// while the miniplayer window is shown.
+func (a *AuxControls) SetMiniplayerHighlighted(h bool) {
+	if a.miniplayer.Highlighted != h {
+		a.miniplayer.Highlighted = h
+		a.miniplayer.Refresh()
+	}
 }
 
 func (a *AuxControls) CreateRenderer() fyne.WidgetRenderer {

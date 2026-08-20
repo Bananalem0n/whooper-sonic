@@ -44,6 +44,7 @@ type MainWindow struct {
 	ToastOverlay *ToastOverlay
 
 	splitContainer   *uicontainer.Split
+	miniPlayer       *MiniPlayer
 	theme            *myTheme.MyTheme
 	haveSystemTray   bool
 	alreadyConnected bool // tracks if we have already connected to a server before
@@ -108,6 +109,9 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	}
 
 	m.BottomPanel = NewBottomPanel(app.PlaybackManager, app.ImageManager, m.Controller, app.Config)
+	m.miniPlayer = NewMiniPlayer(fyneApp, app.PlaybackManager, app.ImageManager)
+	m.miniPlayer.OnVisibilityChanged = m.BottomPanel.AuxControls.SetMiniplayerHighlighted
+	m.BottomPanel.AuxControls.OnShowMiniplayer(m.miniPlayer.Toggle)
 	app.PlaybackManager.OnSongChange(func(item mediaprovider.MediaItem, _ *mediaprovider.Track) {
 		fyne.Do(func() { m.UpdateOnTrackChange(item) })
 	})
