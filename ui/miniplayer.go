@@ -138,6 +138,16 @@ func (t *tapIcon) MinSize() fyne.Size {
 	return t.size
 }
 
+// setIconSize adjusts the icon's footprint; used by the responsive
+// layouts (bigger in the card overlay, compact in the bar).
+func (t *tapIcon) setIconSize(size float32) {
+	if t.size.Width == size {
+		return
+	}
+	t.size = fyne.NewSquareSize(size)
+	t.bg.CornerRadius = size / 2
+}
+
 func (t *tapIcon) Tapped(*fyne.PointEvent) {
 	if t.onTapped != nil {
 		t.onTapped()
@@ -483,7 +493,7 @@ func (r *miniPlayerRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *miniPlayerRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(240, 100)
+	return fyne.NewSize(220, 56)
 }
 
 func (r *miniPlayerRenderer) Destroy() {}
@@ -524,6 +534,9 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m.seekbar.Show()
 	m.shuffle.Hide()
 	m.loop.Hide()
+	m.prev.setIconSize(30)
+	m.playpause.setIconSize(42)
+	m.next.setIconSize(30)
 	if m.title.SizeName != fynetheme.SizeNameSubHeadingText {
 		m.title.SizeName = fynetheme.SizeNameSubHeadingText
 		m.title.Refresh()
@@ -572,6 +585,8 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	// title/artist left; favorite then add-to-playlist on the right
 	m.favBtn.Show()
 	m.addBtn.Show()
+	m.favBtn.IconSize = widgets.IconButtonSizeNormal
+	m.addBtn.IconSize = widgets.IconButtonSizeNormal
 	favSz := m.favBtn.MinSize()
 	addSz := m.addBtn.MinSize()
 	btnsW := favSz.Width + 4 + addSz.Width
@@ -602,6 +617,14 @@ func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	m.loop.Show()
 	m.scrim.Move(fyne.NewPos(0, 0))
 	m.scrim.Resize(fyne.NewSize(0, 0))
+	// compact icons in bar mode
+	m.prev.setIconSize(20)
+	m.playpause.setIconSize(28)
+	m.next.setIconSize(20)
+	m.shuffle.setIconSize(18)
+	m.loop.setIconSize(18)
+	m.favBtn.IconSize = widgets.IconButtonSizeSmaller
+	m.addBtn.IconSize = widgets.IconButtonSizeSmaller
 	if m.title.SizeName != fynetheme.SizeNameText {
 		m.title.SizeName = fynetheme.SizeNameText
 		m.title.Refresh()
@@ -610,8 +633,8 @@ func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	coverSize := size.Height - 2*pad
 	m.bg.Move(fyne.NewPos(pad, pad))
 	m.bg.Resize(fyne.NewSize(coverSize, coverSize))
-	m.cover.Move(fyne.NewPos(pad+3, pad+3))
-	m.cover.Resize(fyne.NewSize(coverSize-6, coverSize-6))
+	m.cover.Move(fyne.NewPos(pad+2, pad+2))
+	m.cover.Resize(fyne.NewSize(coverSize-4, coverSize-4))
 
 	// right-aligned icon cluster, vertically centered
 	center := func(o fyne.CanvasObject, right float32) float32 {
@@ -621,27 +644,27 @@ func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 		return right - ms.Width
 	}
 	x := size.Width - pad
-	x = center(m.loop, x) - 4
-	x = center(m.next, x) - 2
-	x = center(m.playpause, x) - 2
-	x = center(m.prev, x) - 4
-	x = center(m.shuffle, x) - 14
-	x = center(m.addBtn, x) - 4
+	x = center(m.loop, x) - 2
+	x = center(m.next, x) - 1
+	x = center(m.playpause, x) - 1
+	x = center(m.prev, x) - 2
+	x = center(m.shuffle, x) - 10
+	x = center(m.addBtn, x) - 2
 	x = center(m.favBtn, x)
 
 	// title/artist stacked, vertically centered, truncating before the icons
-	tx := pad + coverSize + 10
+	tx := pad + coverSize + 8
 	titleH := m.title.MinSize().Height
 	artistH := m.artist.MinSize().Height
-	textH := titleH + artistH - 16
-	tw := x - 8 - tx
+	textH := titleH + artistH - 18
+	tw := x - 6 - tx
 	if tw < 0 {
 		tw = 0
 	}
 	ty := (size.Height - textH) / 2
-	m.title.Move(fyne.NewPos(tx-4, ty-4))
+	m.title.Move(fyne.NewPos(tx-4, ty-5))
 	m.title.Resize(fyne.NewSize(tw+4, titleH))
-	m.artist.Move(fyne.NewPos(tx-4, ty+titleH-16))
+	m.artist.Move(fyne.NewPos(tx-4, ty+titleH-18))
 	m.artist.Resize(fyne.NewSize(tw+4, artistH))
 }
 
