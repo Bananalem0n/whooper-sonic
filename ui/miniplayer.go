@@ -63,6 +63,8 @@ type MiniPlayer struct {
 	prev      *tapIcon
 	playpause *tapIcon
 	next      *tapIcon
+	shuffle   *tapIcon // bar mode only
+	loop      *tapIcon // bar mode only
 	seekbar   *widgets.FlatSeekbar
 	curTime   *widget.Label
 	totalLbl  *widget.Label
@@ -80,6 +82,7 @@ type tapIcon struct {
 	bg       *canvas.Rectangle
 	size     fyne.Size
 	hovered  bool
+	active   bool
 }
 
 var _ fyne.Tappable = (*tapIcon)(nil)
@@ -104,11 +107,28 @@ func (t *tapIcon) SetHovered(hovered bool) {
 		return
 	}
 	t.hovered = hovered
-	if hovered {
-		th := fyne.CurrentApp().Settings().Theme()
-		v := fyne.CurrentApp().Settings().ThemeVariant()
+	t.recolor()
+}
+
+// SetActive marks a toggle icon (shuffle, loop) as engaged,
+// tinting its background with the theme selection color.
+func (t *tapIcon) SetActive(active bool) {
+	if t.active == active {
+		return
+	}
+	t.active = active
+	t.recolor()
+}
+
+func (t *tapIcon) recolor() {
+	th := fyne.CurrentApp().Settings().Theme()
+	v := fyne.CurrentApp().Settings().ThemeVariant()
+	switch {
+	case t.hovered:
 		t.bg.FillColor = th.Color(fynetheme.ColorNameHover, v)
-	} else {
+	case t.active:
+		t.bg.FillColor = th.Color(fynetheme.ColorNameSelection, v)
+	default:
 		t.bg.FillColor = color.Transparent
 	}
 	t.bg.Refresh()
@@ -173,6 +193,8 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 	m.prev = newTapIcon(fynetheme.MediaSkipPreviousIcon(), 30, func() { pm.SeekBackOrPrevious() })
 	m.playpause = newTapIcon(fynetheme.MediaPlayIcon(), 42, func() { pm.PlayPause() })
 	m.next = newTapIcon(fynetheme.MediaSkipNextIcon(), 30, func() { pm.SeekNext() })
+	m.shuffle = newTapIcon(myTheme.ShuffleIcon, 28, func() { pm.SetShuffle(!pm.IsShuffle()) })
+	m.loop = newTapIcon(myTheme.RepeatIcon, 28, func() { pm.SetNextLoopMode() })
 
 	m.seekbar = widgets.NewFlatSeekbar()
 	m.seekbar.Disable()
@@ -210,8 +232,28 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 		m.setPlaying(false)
 		m.updatePlayTime(0, 0)
 	}))
+	pm.OnShuffleChange(func(shuffle bool) {
+		fyne.Do(func() { m.shuffle.SetActive(shuffle) })
+	})
+	pm.OnLoopModeChange(func(mode backend.LoopMode) {
+		fyne.Do(func() { m.applyLoopMode(mode) })
+	})
 
 	return m
+}
+
+func (m *MiniPlayer) applyLoopMode(mode backend.LoopMode) {
+	switch mode {
+	case backend.LoopOne:
+		m.loop.SetResource(myTheme.RepeatOneIcon)
+		m.loop.SetActive(true)
+	case backend.LoopAll:
+		m.loop.SetResource(myTheme.RepeatIcon)
+		m.loop.SetActive(true)
+	default:
+		m.loop.SetResource(myTheme.RepeatIcon)
+		m.loop.SetActive(false)
+	}
 }
 
 // Canvas returns the miniplayer window's canvas, or nil if the window
@@ -255,6 +297,8 @@ func (m *MiniPlayer) createWindow() {
 	status := m.pm.PlaybackStatus()
 	m.updatePlayTime(status.TimePos, status.Duration)
 	m.setPlaying(status.State == player.Playing)
+	m.shuffle.SetActive(m.pm.IsShuffle())
+	m.applyLoopMode(m.pm.GetLoopMode())
 }
 
 func (m *MiniPlayer) setShown(shown bool) {
@@ -408,7 +452,7 @@ func (c *miniPlayerContent) MouseMoved(e *desktop.MouseEvent) {
 	}
 	// per-icon hover highlight, tracked here since the icons themselves
 	// are deliberately not Hoverable
-	for _, t := range []*tapIcon{m.prev, m.playpause, m.next} {
+	for _, t := range []*tapIcon{m.prev, m.playpause, m.next, m.shuffle, m.loop} {
 		if t.Hidden {
 			t.SetHovered(false)
 			continue
@@ -422,9 +466,9 @@ func (c *miniPlayerContent) MouseMoved(e *desktop.MouseEvent) {
 func (c *miniPlayerContent) MouseOut() {
 	m := c.mp
 	m.setHoverControls(false)
-	m.prev.SetHovered(false)
-	m.playpause.SetHovered(false)
-	m.next.SetHovered(false)
+	for _, t := range []*tapIcon{m.prev, m.playpause, m.next, m.shuffle, m.loop} {
+		t.SetHovered(false)
+	}
 }
 
 type miniPlayerRenderer struct {
@@ -434,7 +478,7 @@ type miniPlayerRenderer struct {
 func (r *miniPlayerRenderer) Objects() []fyne.CanvasObject {
 	m := r.mp
 	return []fyne.CanvasObject{m.bg, m.cover, m.scrim,
-		m.prev, m.playpause, m.next,
+		m.prev, m.playpause, m.next, m.shuffle, m.loop,
 		m.title, m.artist, m.favBtn, m.addBtn, m.curTime, m.seekbar, m.totalLbl}
 }
 
@@ -475,6 +519,15 @@ func (r *miniPlayerRenderer) Layout(size fyne.Size) {
 func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m := r.mp
 	pad := float32(5) // slim margin between the card and window edges
+
+	// card mode: seek line shown, larger title, no shuffle/loop toggles
+	m.seekbar.Show()
+	m.shuffle.Hide()
+	m.loop.Hide()
+	if m.title.SizeName != fynetheme.SizeNameSubHeadingText {
+		m.title.SizeName = fynetheme.SizeNameSubHeadingText
+		m.title.Refresh()
+	}
 
 	titleH := m.title.MinSize().Height
 	artistH := m.artist.MinSize().Height
@@ -533,18 +586,26 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m.addBtn.Resize(addSz)
 }
 
-// layoutBar: cover on the left, text and controls to the right.
+// layoutBar: one compact Spotify-style row -
+// [cover] [title/artist] ... [fav][add]  [shuffle][prev][play][next][loop]
+// No seek bar or time labels in this mode.
 func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	m := r.mp
 	pad := float32(8)
 
-	// bar mode has no hover overlay or action buttons, and shows the times
-	m.curTime.Show()
-	m.totalLbl.Show()
-	m.favBtn.Hide()
-	m.addBtn.Hide()
+	m.curTime.Hide()
+	m.totalLbl.Hide()
+	m.seekbar.Hide()
+	m.favBtn.Show()
+	m.addBtn.Show()
+	m.shuffle.Show()
+	m.loop.Show()
 	m.scrim.Move(fyne.NewPos(0, 0))
 	m.scrim.Resize(fyne.NewSize(0, 0))
+	if m.title.SizeName != fynetheme.SizeNameText {
+		m.title.SizeName = fynetheme.SizeNameText
+		m.title.Refresh()
+	}
 
 	coverSize := size.Height - 2*pad
 	m.bg.Move(fyne.NewPos(pad, pad))
@@ -552,20 +613,36 @@ func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	m.cover.Move(fyne.NewPos(pad+3, pad+3))
 	m.cover.Resize(fyne.NewSize(coverSize-6, coverSize-6))
 
+	// right-aligned icon cluster, vertically centered
+	center := func(o fyne.CanvasObject, right float32) float32 {
+		ms := o.MinSize()
+		o.Resize(ms)
+		o.Move(fyne.NewPos(right-ms.Width, (size.Height-ms.Height)/2))
+		return right - ms.Width
+	}
+	x := size.Width - pad
+	x = center(m.loop, x) - 4
+	x = center(m.next, x) - 2
+	x = center(m.playpause, x) - 2
+	x = center(m.prev, x) - 4
+	x = center(m.shuffle, x) - 14
+	x = center(m.addBtn, x) - 4
+	x = center(m.favBtn, x)
+
+	// title/artist stacked, vertically centered, truncating before the icons
 	tx := pad + coverSize + 10
-	tw := size.Width - tx - pad
 	titleH := m.title.MinSize().Height
 	artistH := m.artist.MinSize().Height
-
-	m.title.Move(fyne.NewPos(tx-4, 0))
+	textH := titleH + artistH - 16
+	tw := x - 8 - tx
+	if tw < 0 {
+		tw = 0
+	}
+	ty := (size.Height - textH) / 2
+	m.title.Move(fyne.NewPos(tx-4, ty-4))
 	m.title.Resize(fyne.NewSize(tw+4, titleH))
-	m.artist.Move(fyne.NewPos(tx-4, titleH-12))
+	m.artist.Move(fyne.NewPos(tx-4, ty+titleH-16))
 	m.artist.Resize(fyne.NewSize(tw+4, artistH))
-
-	rowH := float32(30)
-	rowY := size.Height - rowH - 4
-	bw := r.placeTransport(tx, rowY, rowH)
-	r.placeSeekRow(tx+bw+8, rowY, size.Width-(tx+bw+8)-pad, rowH)
 }
 
 // placeTransport lays out prev/play/next starting at x, vertically
@@ -582,19 +659,3 @@ func (r *miniPlayerRenderer) placeTransport(x, y, h float32) float32 {
 	return x - startX - 8
 }
 
-func (r *miniPlayerRenderer) placeSeekRow(x, y, w, h float32) {
-	m := r.mp
-	ctW := m.curTime.MinSize().Width
-	ttW := m.totalLbl.MinSize().Width
-	m.curTime.Move(fyne.NewPos(x-4, y+(h-m.curTime.MinSize().Height)/2))
-	m.curTime.Resize(fyne.NewSize(ctW, m.curTime.MinSize().Height))
-	m.totalLbl.Move(fyne.NewPos(x+w-ttW+4, y+(h-m.totalLbl.MinSize().Height)/2))
-	m.totalLbl.Resize(fyne.NewSize(ttW, m.totalLbl.MinSize().Height))
-	sx := x + ctW - 2
-	sw := w - ctW - ttW + 4
-	if sw < 0 {
-		sw = 0
-	}
-	m.seekbar.Move(fyne.NewPos(sx, y))
-	m.seekbar.Resize(fyne.NewSize(sw, h))
-}
