@@ -39,8 +39,17 @@ func NewSelectPlaylistDialog(mp mediaprovider.MediaProvider, im util.ImageFetche
 	)
 	sd.ActionItem = widget.NewCheckWithData(lang.L("Skip duplicate tracks"), binding.BindBool(&sp.SkipDuplicates))
 	sd.PlaceholderText = lang.L("Search playlists or new playlist name")
+	// multiple playlists can be checked and confirmed at once
+	sd.MultiSelect = true
+	sd.ConfirmText = lang.L("Add")
 	sp.SearchDialog = sd
 	return sp
+}
+
+// SetOnConfirmSelection sets the callback invoked with the IDs of all
+// selected playlists when the user confirms the dialog.
+func (sp *SelectPlaylist) SetOnConfirmSelection(f func(playlistIDs []string)) {
+	sp.SearchDialog.OnConfirmSelection = f
 }
 
 func (sp *SelectPlaylist) fetchUserOwnedPlaylists() {

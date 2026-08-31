@@ -32,6 +32,8 @@ type MiniPlayer struct {
 	OnVisibilityChanged func(bool)
 	// OnAddToPlaylist is invoked when the add-to-playlist button is tapped.
 	OnAddToPlaylist func()
+	// OnSetFavorite is invoked when the favorite button toggles.
+	OnSetFavorite func(favorite bool)
 
 	fyneApp fyne.App
 	pm      *backend.PlaybackManager
@@ -55,6 +57,8 @@ type MiniPlayer struct {
 	scrim     *canvas.Rectangle // dims the cover behind hover controls
 	title     *widget.Label
 	artist    *widget.Label
+	favBtn    *widgets.IconButton
+	favorited bool
 	addBtn    *widgets.IconButton
 	prev      *tapIcon
 	playpause *tapIcon
@@ -139,6 +143,16 @@ func NewMiniPlayer(fyneApp fyne.App, pm *backend.PlaybackManager, im *backend.Im
 	m.scrim = canvas.NewRectangle(color.Transparent)
 	m.scrim.CornerRadius = 12
 	m.scrim.Hidden = true
+
+	m.favBtn = widgets.NewIconButton(myTheme.NotFavoriteIcon, func() {
+		m.favorited = !m.favorited
+		m.applyFavoriteIcon()
+		if m.OnSetFavorite != nil {
+			m.OnSetFavorite(m.favorited)
+		}
+	})
+	m.favBtn.SetToolTip(lang.L("Set favorite"))
+	m.favBtn.Disable()
 
 	m.addBtn = widgets.NewIconButton(fynetheme.ContentAddIcon(), func() {
 		if m.OnAddToPlaylist != nil {
@@ -262,11 +276,27 @@ func (m *MiniPlayer) onSongChange(item mediaprovider.MediaItem) {
 	if tr, ok := item.(*mediaprovider.Track); ok {
 		m.artist.SetText(strings.Join(tr.ArtistNames, ", "))
 		m.addBtn.Enable()
+		m.favorited = tr.Favorite
+		m.applyFavoriteIcon()
+		m.favBtn.Enable()
 	} else {
 		m.artist.SetText("")
 		m.addBtn.Disable()
+		m.favorited = false
+		m.applyFavoriteIcon()
+		m.favBtn.Disable()
 	}
 	m.imageLoader.Load(meta.CoverArtID)
+}
+
+func (m *MiniPlayer) applyFavoriteIcon() {
+	if m.favorited {
+		m.favBtn.SetIcon(myTheme.FavoriteIcon)
+		m.favBtn.SetToolTip(lang.L("Unset favorite"))
+	} else {
+		m.favBtn.SetIcon(myTheme.NotFavoriteIcon)
+		m.favBtn.SetToolTip(lang.L("Set favorite"))
+	}
 }
 
 // setHoverControls shows or hides the transport controls overlaid on
@@ -405,7 +435,7 @@ func (r *miniPlayerRenderer) Objects() []fyne.CanvasObject {
 	m := r.mp
 	return []fyne.CanvasObject{m.bg, m.cover, m.scrim,
 		m.prev, m.playpause, m.next,
-		m.title, m.artist, m.addBtn, m.curTime, m.seekbar, m.totalLbl}
+		m.title, m.artist, m.favBtn, m.addBtn, m.curTime, m.seekbar, m.totalLbl}
 }
 
 func (r *miniPlayerRenderer) MinSize() fyne.Size {
@@ -432,7 +462,7 @@ func (r *miniPlayerRenderer) Layout(size fyne.Size) {
 		}
 		m.applyControlVisibility()
 	}
-	if cardMode {
+	if cardMode {	
 		r.layoutCard(size)
 	} else {
 		r.layoutBar(size)
@@ -486,14 +516,19 @@ func (r *miniPlayerRenderer) layoutCard(size fyne.Size) {
 	m.seekbar.Move(fyne.NewPos(pad+2, seekY))
 	m.seekbar.Resize(fyne.NewSize(size.Width-2*pad-4, seekH))
 
-	// title/artist left, add-to-playlist right
+	// title/artist left; favorite then add-to-playlist on the right
+	m.favBtn.Show()
 	m.addBtn.Show()
+	favSz := m.favBtn.MinSize()
 	addSz := m.addBtn.MinSize()
-	textW := size.Width - 2*pad - addSz.Width - 10
+	btnsW := favSz.Width + 4 + addSz.Width
+	textW := size.Width - 2*pad - btnsW - 10
 	m.title.Move(fyne.NewPos(pad-4, textY))
 	m.title.Resize(fyne.NewSize(textW+4, titleH))
 	m.artist.Move(fyne.NewPos(pad-4, textY+titleH-14))
 	m.artist.Resize(fyne.NewSize(textW+4, artistH))
+	m.favBtn.Move(fyne.NewPos(size.Width-pad-btnsW, textY+(textH-favSz.Height)/2))
+	m.favBtn.Resize(favSz)
 	m.addBtn.Move(fyne.NewPos(size.Width-pad-addSz.Width, textY+(textH-addSz.Height)/2))
 	m.addBtn.Resize(addSz)
 }
@@ -503,9 +538,10 @@ func (r *miniPlayerRenderer) layoutBar(size fyne.Size) {
 	m := r.mp
 	pad := float32(8)
 
-	// bar mode has no hover overlay or add button, and shows the times
+	// bar mode has no hover overlay or action buttons, and shows the times
 	m.curTime.Show()
 	m.totalLbl.Show()
+	m.favBtn.Hide()
 	m.addBtn.Hide()
 	m.scrim.Move(fyne.NewPos(0, 0))
 	m.scrim.Resize(fyne.NewSize(0, 0))

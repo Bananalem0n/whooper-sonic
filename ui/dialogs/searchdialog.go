@@ -30,10 +30,21 @@ type SearchDialog struct {
 	// of the dismiss buttons
 	ActionItem fyne.CanvasObject
 
+	// MultiSelect makes tapping a result toggle its selection instead
+	// of navigating, and adds a confirm button (ConfirmText) that
+	// invokes OnConfirmSelection with the selected IDs. Results with an
+	// empty ID (e.g. "create new" rows) still navigate immediately.
+	MultiSelect        bool
+	ConfirmText        string
+	OnConfirmSelection func(ids []string)
+
 	OnDismiss         func()
 	OnNavigateTo      func(mediaprovider.ContentType, string)
 	OnShowContextMenu func(itemIdx int, pos fyne.Position)
 	OnSearched        func(string) []*mediaprovider.SearchResult
+
+	selectedIDs map[string]bool
+	confirmBtn  *widget.Button
 
 	imgSource                util.ImageFetcher
 	resultsMutex             sync.RWMutex
@@ -121,9 +132,6 @@ func (sd *SearchDialog) onDismiss() {
 }
 
 func (sd *SearchDialog) onSelected(idx int) {
-	if sd.OnNavigateTo == nil {
-		return
-	}
 	sd.resultsMutex.RLock()
 	if len(sd.searchResults) <= idx {
 		sd.resultsMutex.RUnlock()
@@ -132,7 +140,43 @@ func (sd *SearchDialog) onSelected(idx int) {
 	id := sd.searchResults[idx].ID
 	typ := sd.searchResults[idx].Type
 	sd.resultsMutex.RUnlock()
+	if sd.MultiSelect && id != "" {
+		if sd.selectedIDs == nil {
+			sd.selectedIDs = make(map[string]bool)
+		}
+		if sd.selectedIDs[id] {
+			delete(sd.selectedIDs, id)
+		} else {
+			sd.selectedIDs[id] = true
+		}
+		sd.list.Refresh()
+		sd.updateConfirmState()
+		return
+	}
+	if sd.OnNavigateTo == nil {
+		return
+	}
 	sd.OnNavigateTo(typ, id)
+}
+
+// SelectedIDs returns the IDs toggled on in MultiSelect mode.
+func (sd *SearchDialog) SelectedIDs() []string {
+	ids := make([]string, 0, len(sd.selectedIDs))
+	for id := range sd.selectedIDs {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (sd *SearchDialog) updateConfirmState() {
+	if sd.confirmBtn == nil {
+		return
+	}
+	if len(sd.selectedIDs) == 0 {
+		sd.confirmBtn.Disable()
+	} else {
+		sd.confirmBtn.Enable()
+	}
 }
 
 func (sd *SearchDialog) moveSelectionDown() {
@@ -192,10 +236,22 @@ func (sd *SearchDialog) CreateRenderer() fyne.WidgetRenderer {
 	title := widget.NewRichText(&widget.TextSegment{Text: sd.dialogTitle, Style: util.BoldRichTextStyle})
 	title.Segments[0].(*widget.TextSegment).Style.Alignment = fyne.TextAlignCenter
 	bottomRow := container.NewHBox()
+	if sd.MultiSelect {
+		sd.confirmBtn = widget.NewButton(sd.ConfirmText, func() {
+			if sd.OnConfirmSelection != nil {
+				sd.OnConfirmSelection(sd.SelectedIDs())
+			}
+		})
+		sd.confirmBtn.Importance = widget.HighImportance
+		sd.updateConfirmState()
+	}
 	if sd.ActionItem != nil {
 		bottomRow.Objects = []fyne.CanvasObject{sd.ActionItem, layout.NewSpacer(), dismissBtn}
 	} else {
 		bottomRow.Objects = []fyne.CanvasObject{layout.NewSpacer(), dismissBtn}
+	}
+	if sd.confirmBtn != nil {
+		bottomRow.Objects = append(bottomRow.Objects, sd.confirmBtn)
 	}
 	sd.content = container.NewStack(
 		container.NewBorder(
@@ -248,6 +304,7 @@ type searchResult struct {
 	image     *widgets.ImagePlaceholder
 	title     *widget.Label
 	secondary *widget.RichText
+	check     *widget.Icon // selection indicator in MultiSelect mode
 
 	content *fyne.Container
 }
@@ -258,7 +315,9 @@ func newSearchResult(parent *SearchDialog) *searchResult {
 		image:     widgets.NewImagePlaceholder(myTheme.AlbumIcon, 50),
 		title:     widget.NewLabel(""),
 		secondary: widget.NewRichText(),
+		check:     widget.NewIcon(theme.CheckButtonIcon()),
 	}
+	qs.check.Hidden = !parent.MultiSelect
 	qs.title.Truncation = fyne.TextTruncateEllipsis
 	qs.secondary.Truncation = fyne.TextTruncateEllipsis
 	qs.ExtendBaseWidget(qs)
@@ -275,6 +334,16 @@ func newSearchResult(parent *SearchDialog) *searchResult {
 func (s *searchResult) Update(result *mediaprovider.SearchResult) {
 	if result == nil {
 		return
+	}
+	// selection state must update even when the row is bound to the
+	// same result, since toggling refreshes the list in place
+	if s.parent.MultiSelect {
+		s.check.Hidden = result.ID == ""
+		if s.parent.selectedIDs[result.ID] {
+			s.check.SetResource(theme.CheckButtonCheckedIcon())
+		} else {
+			s.check.SetResource(theme.CheckButtonIcon())
+		}
 	}
 	if s.contentType == result.Type && s.id == result.ID && s.title.Text == result.Name {
 		return // nothing to do
@@ -358,7 +427,8 @@ func (q *searchResult) TappedSecondary(e *fyne.PointEvent) {
 
 func (q *searchResult) CreateRenderer() fyne.WidgetRenderer {
 	if q.content == nil {
-		q.content = container.NewBorder(nil, nil, container.NewCenter(q.image), nil,
+		q.content = container.NewBorder(nil, nil, container.NewCenter(q.image),
+			container.NewCenter(q.check),
 			container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-15),
 				q.title,
 				q.secondary,

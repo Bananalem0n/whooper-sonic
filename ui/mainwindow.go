@@ -111,6 +111,11 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.BottomPanel = NewBottomPanel(app.PlaybackManager, app.ImageManager, m.Controller, app.Config)
 	m.miniPlayer = NewMiniPlayer(fyneApp, app.PlaybackManager, app.ImageManager)
 	m.miniPlayer.OnVisibilityChanged = m.BottomPanel.AuxControls.SetMiniplayerHighlighted
+	m.miniPlayer.OnSetFavorite = func(fav bool) {
+		if tr, ok := app.PlaybackManager.NowPlaying().(*mediaprovider.Track); ok {
+			m.Controller.SetTrackFavorites([]string{tr.ID}, fav)
+		}
+	}
 	m.miniPlayer.OnAddToPlaylist = func() {
 		if tr, ok := app.PlaybackManager.NowPlaying().(*mediaprovider.Track); ok {
 			if cv := m.miniPlayer.Canvas(); cv != nil {

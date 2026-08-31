@@ -42,19 +42,47 @@ func (m *Controller) doAddTracksToPlaylistWorkflow(trackIDs []string, cv fyne.Ca
 		pop.Hide()
 		m.doModalClosed()
 	})
-	sp.SetOnNavigateTo(func(contentType mediaprovider.ContentType, id string) {
-		notifySuccess := func(n int) {
-			fyne.Do(func() {
-				msg := lang.LocalizePluralKey("playlist.addedtracks",
-					"Added tracks to playlist", n, map[string]string{"trackCount": strconv.Itoa(n)})
-				m.ToastProvider.ShowSuccessToast(msg)
+	notifySuccess := func(n int) {
+		fyne.Do(func() {
+			msg := lang.LocalizePluralKey("playlist.addedtracks",
+				"Added tracks to playlist", n, map[string]string{"trackCount": strconv.Itoa(n)})
+			m.ToastProvider.ShowSuccessToast(msg)
+		})
+	}
+	notifyError := util.FyneDoFunc(func() {
+		m.ToastProvider.ShowErrorToast(
+			lang.L("An error occurred adding tracks to the playlist"),
+		)
+	})
+	// adds the tracks to one playlist, optionally skipping duplicates;
+	// blocking - to be run in a goroutine
+	addToPlaylist := func(id string, skipDuplicates bool) {
+		addIDs := trackIDs
+		if skipDuplicates {
+			selectedPlaylist, err := m.App.ServerManager.Server.GetPlaylist(id)
+			if err != nil {
+				log.Printf("error getting playlist: %s", err.Error())
+				notifyError()
+				return
+			}
+			currentTrackIDs := make(map[string]struct{})
+			for _, track := range selectedPlaylist.Tracks {
+				currentTrackIDs[track.ID] = struct{}{}
+			}
+			addIDs = sharedutil.FilterSlice(trackIDs, func(trackID string) bool {
+				_, ok := currentTrackIDs[trackID]
+				return !ok
 			})
 		}
-		notifyError := util.FyneDoFunc(func() {
-			m.ToastProvider.ShowErrorToast(
-				lang.L("An error occurred adding tracks to the playlist"),
-			)
-		})
+		if err := m.App.ServerManager.Server.AddPlaylistTracks(id, addIDs); err != nil {
+			log.Printf("error adding tracks to playlist: %s", err.Error())
+			notifyError()
+			return
+		}
+		notifySuccess(len(addIDs))
+	}
+	// fires only for the "create new playlist" row in multi-select mode
+	sp.SetOnNavigateTo(func(contentType mediaprovider.ContentType, id string) {
 		pop.Hide()
 		m.App.Config.Application.AddToPlaylistSkipDuplicates = sp.SkipDuplicates
 		if id == "" /* creating new playlist */ {
@@ -69,40 +97,18 @@ func (m *Controller) doAddTracksToPlaylistWorkflow(trackIDs []string, cv fyne.Ca
 			}()
 		} else {
 			m.App.Config.Application.DefaultPlaylistID = id
-			if sp.SkipDuplicates {
-				go func() {
-					currentTrackIDs := make(map[string]struct{})
-					if selectedPlaylist, err := m.App.ServerManager.Server.GetPlaylist(id); err != nil {
-						log.Printf("error getting playlist: %s", err.Error())
-						notifyError()
-					} else {
-						for _, track := range selectedPlaylist.Tracks {
-							currentTrackIDs[track.ID] = struct{}{}
-						}
-						filterTrackIDs := sharedutil.FilterSlice(trackIDs, func(trackID string) bool {
-							_, ok := currentTrackIDs[trackID]
-							return !ok
-						})
-						err := m.App.ServerManager.Server.AddPlaylistTracks(id, filterTrackIDs)
-						if err == nil {
-							notifySuccess(len(filterTrackIDs))
-						} else {
-							log.Printf("error adding tracks to playlist: %s", err.Error())
-							notifyError()
-						}
-					}
-				}()
-			} else {
-				go func() {
-					err := m.App.ServerManager.Server.AddPlaylistTracks(id, trackIDs)
-					if err == nil {
-						notifySuccess(len(trackIDs))
-					} else {
-						log.Printf("error adding tracks to playlist: %s", err.Error())
-						notifyError()
-					}
-				}()
-			}
+			go addToPlaylist(id, sp.SkipDuplicates)
+		}
+	})
+	// confirming adds the tracks to every selected playlist
+	sp.SetOnConfirmSelection(func(playlistIDs []string) {
+		pop.Hide()
+		m.App.Config.Application.AddToPlaylistSkipDuplicates = sp.SkipDuplicates
+		if len(playlistIDs) > 0 {
+			m.App.Config.Application.DefaultPlaylistID = playlistIDs[len(playlistIDs)-1]
+		}
+		for _, id := range playlistIDs {
+			go addToPlaylist(id, sp.SkipDuplicates)
 		}
 	})
 	m.ClosePopUpOnEscape(pop)
